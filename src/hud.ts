@@ -55,7 +55,10 @@ export class Hud {
       <button class="btn center gold" id="b-daily"><b>Daily table · ${dailyLabel}</b></button>
       <div class="tiny">A 3D pool roguelike · web prototype</div>
     `);
-    this.wire({ 'b-new': onNew, 'b-daily': onDaily });
+    this.wire({
+      'b-new': () => { this.hidePanel(); onNew(); },
+      'b-daily': () => { this.hidePanel(); onDaily(); },
+    });
   }
 
   nodeChoice(depth: number, options: { key: string; title: string; desc: string; cls?: string }[], pick: (key: string) => void) {

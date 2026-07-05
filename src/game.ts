@@ -1,6 +1,6 @@
 // The run, end to end (dossier D2–D5): Stroke, gauntlet waves, cracks, the descent, the 8-ball.
 import { Ball, makePlayer, makeEnemy, makeSplitChild, HALF_L } from './entities';
-import { step, allSettled, speedOf, simulatePath, MAX_SHOT_SPEED, PhysicsEvents } from './physics';
+import { step, speedOf, simulatePath, MAX_SHOT_SPEED, PhysicsEvents } from './physics';
 import { updateEnemies } from './enemies';
 import { makeRack, makeBossWaves, Wave } from './waves';
 import { baseStats, PlayerStats, draftUpgrades, UPGRADES, Upgrade } from './upgrades';
@@ -14,6 +14,7 @@ type Phase = 'menu' | 'playing' | 'panel' | 'over';
 
 const MAX_STROKE = 100;
 const MAX_DEPTH = 6;
+const WAVE_STALL_S = 25; // anti-stall (dossier D3): next wave drops on timer OR clear
 
 export class Game {
   private r3d: Renderer3D;
@@ -37,6 +38,7 @@ export class Game {
   private waves: Wave[] = [];
   private waveIdx = 0;
   private waveCalm = 0;        // calm-beat countdown between waves
+  private waveAge = 0;         // time since current wave spawned (anti-stall)
   private isBossRack = false;
   private isMoneyRack = false;
   private boss: Ball | null = null;
@@ -116,6 +118,7 @@ export class Game {
     }
     this.waveIdx = -1;
     this.waveCalm = 0.8;
+    this.waveAge = 0;
     this.hud.setDepth(this.depth, MAX_DEPTH);
     this.hud.setCracks(this.cracks, this.stats.maxCracks);
     this.hud.setChalk(this.chalk);
@@ -124,6 +127,7 @@ export class Game {
 
   private spawnNextWave() {
     this.waveIdx++;
+    this.waveAge = 0;
     if (this.waveIdx >= this.waves.length) return;
     const wave = this.waves[this.waveIdx];
     for (const s of wave) this.balls.push(makeEnemy(s.kind, s.x, s.z, s.elite));
@@ -183,6 +187,7 @@ export class Game {
   // ---------- the descent: choose your route ----------
   private offerNodes() {
     this.depth++;
+    this.hud.setDepth(this.depth, MAX_DEPTH);
     if (this.depth >= MAX_DEPTH) {
       this.hud.nodeChoice(this.depth, [
         { key: 'rack', title: 'The bottom of the run', desc: 'Something black is waiting at the last table.', cls: 'pink' },
@@ -269,7 +274,8 @@ export class Game {
     this.stroke = Math.max(0, this.stroke - 15);
     audio.crackSnap();
     this.r3d.pulse('crack');
-    if (this.cracks > this.stats.maxCracks) {
+    // shatter ON the last crack — the pips the player sees ARE the health (dossier D4)
+    if (this.cracks >= this.stats.maxCracks) {
       this.shatter();
     } else {
       this.r3d.setPlayerCracks(this.cracks);
@@ -290,6 +296,7 @@ export class Game {
   }
 
   private endRun(reason: 'scratch' | 'shatter') {
+    if (this.phase === 'over') return; // one ending per run, even if events race
     this.phase = 'over';
     setTimeout(() => {
       this.hud.gameOver(reason, this.depth, () => this.showMenu(), this.seedLabel());
@@ -297,6 +304,7 @@ export class Game {
   }
 
   private victory() {
+    if (this.phase === 'over') return;
     this.phase = 'over';
     audio.thunk();
     setTimeout(() => this.hud.victory(() => this.showMenu(), this.seedLabel()), 1000);
@@ -406,6 +414,15 @@ export class Game {
         while (this.acc >= h && n < 12) {
           step(this.balls, h, this.events);
           this.acc -= h; n++;
+        }
+
+        // anti-stall (dossier D3): a fleeing straggler can't hold the rack hostage —
+        // the next wave drops on a timer even if the current one isn't cleared.
+        // Boss racks are exempt: armor pips are tied 1:1 to wave CLEARS.
+        if (!this.isBossRack && this.enemiesAlive().length > 0 &&
+            this.waveIdx >= 0 && this.waveIdx < this.waves.length - 1) {
+          this.waveAge += sdt;
+          if (this.waveAge >= WAVE_STALL_S) this.spawnNextWave();
         }
 
         // wave progression: calm beat, then the next wave drops

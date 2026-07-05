@@ -115,6 +115,7 @@ export class Renderer3D {
   private playerTexCache: THREE.CanvasTexture[] = [];
   private kindTexCache = new Map<string, THREE.CanvasTexture>();
   private shakeT = 0;
+  private camBase = new THREE.Vector3(); // framed camera position; shake offsets from here
   private feltMat: THREE.MeshStandardMaterial;
   private railMats: THREE.MeshStandardMaterial[] = [];
   portrait = true;
@@ -199,6 +200,7 @@ export class Renderer3D {
 
   resize() {
     const w = innerWidth, h = innerHeight;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);
     const aspect = w / h;
@@ -224,6 +226,7 @@ export class Renderer3D {
     }
     this.camera.lookAt(0, 0, 0);
     this.camera.updateProjectionMatrix();
+    this.camBase.copy(this.camera.position);
   }
 
   private texFor(b: Ball): THREE.CanvasTexture {
@@ -316,9 +319,7 @@ export class Renderer3D {
     // remove views for dead balls (shrink-out could be added later)
     for (const [id, v] of this.views) {
       if (!seen.has(id)) {
-        this.scene.remove(v.mesh);
-        if (v.ring) this.scene.remove(v.ring);
-        v.mat.dispose();
+        this.disposeView(v);
         this.views.delete(id);
       }
     }
@@ -336,32 +337,44 @@ export class Renderer3D {
   }
 
   render(dt: number) {
+    // shake as an offset from the framed base — never a random walk that drifts the camera
     if (this.shakeT > 0) {
       this.shakeT -= dt;
-      const s = this.shakeT * 0.02;
-      this.camera.position.x += (Math.random() - 0.5) * s;
-      this.camera.position.z += (Math.random() - 0.5) * s;
+      const s = Math.max(0, this.shakeT) * 0.02;
+      this.camera.position.set(
+        this.camBase.x + (Math.random() - 0.5) * s,
+        this.camBase.y,
+        this.camBase.z + (Math.random() - 0.5) * s,
+      );
+      if (this.shakeT <= 0) this.camera.position.copy(this.camBase);
     }
     this.composer.render();
   }
 
-  clearBalls() {
-    for (const [, v] of this.views) {
-      this.scene.remove(v.mesh);
-      if (v.ring) this.scene.remove(v.ring);
-      v.mat.dispose();
+  private disposeView(v: BallView) {
+    this.scene.remove(v.mesh);
+    v.mat.dispose();
+    if (v.ring) {
+      this.scene.remove(v.ring);
+      v.ring.geometry.dispose();
+      (v.ring.material as THREE.Material).dispose();
     }
+  }
+
+  clearBalls() {
+    for (const [, v] of this.views) this.disposeView(v);
     this.views.clear();
   }
 
   /** Raycast a screen point onto the table plane → logical coords. */
+  private pickRay = new THREE.Raycaster();
+  private pickPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private pickNdc = new THREE.Vector2();
+  private pickOut = new THREE.Vector3();
   screenToTable(cx: number, cy: number): { x: number; z: number } {
-    const ndc = new THREE.Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1);
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, this.camera);
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-    const out = new THREE.Vector3();
-    ray.ray.intersectPlane(plane, out);
-    return { x: out.x, z: out.z };
+    this.pickNdc.set((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1);
+    this.pickRay.setFromCamera(this.pickNdc, this.camera);
+    this.pickRay.ray.intersectPlane(this.pickPlane, this.pickOut);
+    return { x: this.pickOut.x, z: this.pickOut.z };
   }
 }

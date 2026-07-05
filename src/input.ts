@@ -4,9 +4,12 @@ import { Renderer3D } from './render';
 
 export interface ShotPayload { dirX: number; dirZ: number; power: number }
 
+const GRAB_R = 0.12; // how close to the cue a drag must start (logical units; ball r = 0.034)
+
 export class AimInput {
   aiming = false;
   private dragX = 0; private dragZ = 0;
+  private aimId: number | null = null; // the one pointer that owns the aim gesture
   spinSide = 0; spinTop = 0;
   onFire: ((s: ShotPayload) => void) | null = null;
   canAim: (() => boolean) | null = null;
@@ -14,25 +17,34 @@ export class AimInput {
 
   constructor(private r3d: Renderer3D, canvas: HTMLElement, spinPad: HTMLElement, spinKnob: HTMLElement) {
     canvas.addEventListener('pointerdown', e => {
+      if (this.aiming) return; // a second finger can't steal the gesture
       if (!this.canAim || !this.canAim()) return;
-      this.aiming = true;
-      canvas.setPointerCapture(e.pointerId);
       const p = this.r3d.screenToTable(e.clientX, e.clientY);
+      // slingshot starts ON the ball — a stray tap on open felt must not fire
+      const b = this.getBallPos ? this.getBallPos() : null;
+      if (!b || Math.hypot(p.x - b.x, p.z - b.z) > GRAB_R) return;
+      this.aiming = true;
+      this.aimId = e.pointerId;
+      canvas.setPointerCapture(e.pointerId);
       this.dragX = p.x; this.dragZ = p.z;
     });
     canvas.addEventListener('pointermove', e => {
-      if (!this.aiming) return;
+      if (!this.aiming || e.pointerId !== this.aimId) return;
       const p = this.r3d.screenToTable(e.clientX, e.clientY);
       this.dragX = p.x; this.dragZ = p.z;
     });
-    const release = () => {
-      if (!this.aiming) return;
+    const release = (e: PointerEvent) => {
+      if (!this.aiming || e.pointerId !== this.aimId) return;
       this.aiming = false;
+      this.aimId = null;
       const s = this.currentShot();
       if (s && s.power > 0.06 && this.onFire) this.onFire(s);
     };
     canvas.addEventListener('pointerup', release);
-    canvas.addEventListener('pointercancel', () => { this.aiming = false; });
+    canvas.addEventListener('pointercancel', e => {
+      if (e.pointerId !== this.aimId) return;
+      this.aiming = false; this.aimId = null;
+    });
 
     // spin pad: draggable knob → english (x) and follow/draw (y)
     const setSpin = (e: PointerEvent) => {
@@ -47,14 +59,24 @@ export class AimInput {
       spinKnob.style.top = `${50 + dy * 38}%`;
     };
     let padActive = false;
-    spinPad.addEventListener('pointerdown', e => { padActive = true; spinPad.setPointerCapture(e.pointerId); setSpin(e); e.stopPropagation(); });
+    let lastPadDown = 0;
+    spinPad.addEventListener('pointerdown', e => {
+      // double-tap to zero spin — hand-rolled so it works on touch (dblclick doesn't)
+      const now = performance.now();
+      if (now - lastPadDown < 300) {
+        lastPadDown = 0;
+        this.spinSide = 0; this.spinTop = 0;
+        spinKnob.style.left = '50%'; spinKnob.style.top = '50%';
+        return;
+      }
+      lastPadDown = now;
+      padActive = true;
+      spinPad.setPointerCapture(e.pointerId);
+      setSpin(e);
+    });
     spinPad.addEventListener('pointermove', e => { if (padActive) setSpin(e); });
     spinPad.addEventListener('pointerup', () => { padActive = false; });
-    // double-tap the pad to zero spin
-    spinPad.addEventListener('dblclick', () => {
-      this.spinSide = 0; this.spinTop = 0;
-      spinKnob.style.left = '50%'; spinKnob.style.top = '50%';
-    });
+    spinPad.addEventListener('pointercancel', () => { padActive = false; });
   }
 
   /** Slingshot vector: pull back from the ball; launch is the opposite direction. */
