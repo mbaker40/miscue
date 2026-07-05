@@ -10,6 +10,15 @@ export class Hud {
 
   setDepth(d: number, max: number) { $('depth').parentElement!.innerHTML = `TABLE <b id="depth">${d}</b>/${max}`; }
   setWave(w: number, total: number) { $('wave').parentElement!.innerHTML = `WAVE <b id="wave">${w}</b>/${total}`; }
+
+  // enemies still standing — written every frame from postStep, so cache the last
+  // value and skip the DOM when nothing changed.
+  private lastLeft = -1;
+  setLeft(n: number) {
+    if (n === this.lastLeft) return;
+    this.lastLeft = n;
+    $('left').textContent = String(n);
+  }
   setChalk(c: number) { $('chalk').textContent = `◆ ${c}`; }
   setStroke(v: number, max: number) { ($('strokefill') as HTMLElement).style.width = `${(100 * v) / max}%`; }
 

@@ -17,6 +17,8 @@ import * as control from './control';
 import { Input, type ShotPayload } from './input';
 import { Game } from './game';
 import { Hud } from './hud';
+import { Markers } from './markers';
+import * as audio from './audio';
 import type { AiFx, Bounds } from './enemies';
 
 declare const __BUILD_ID__: string;
@@ -71,6 +73,7 @@ async function boot(): Promise<void> {
   const ballViews = new BallViews(sceneRig.scene);
   buildLevelMeshes(sceneRig.scene, sim); // terrain meshes straight from the physics defs
   const aimLine = new AimLine(sceneRig.scene);
+  const markers = new Markers(document.getElementById('markers')!);
 
   // shadow world for the aim preview — same level build, same ball phys (preview.ts).
   // levelBuilder's return value is discarded (AimPreview's build param is (sim)=>void).
@@ -107,8 +110,15 @@ async function boot(): Promise<void> {
   // ---------- game state (M1: combat slice) or plain M0 stats, depending on level ----------
   const hud = feelMode ? null : new Hud();
   const fx: AiFx = { telegraph: (e, on) => ballViews.setTelegraph(e, on) };
-  const game = feelMode ? null : new Game({ sim, player, bounds, pockets, checkpoint, hud: hud!, fx });
-  const stats: control.PlayerStatsLike = game ? game.stats : { stroke: 100 };
+  // Game construction is deferred behind the intro overlay (M1.5) — waves must not
+  // spawn while a new player is still reading how to play. Debug/feel boots skip the
+  // intro, so every headless suite constructs (or omits) the Game exactly as before.
+  let game: Game | null = null;
+  const startGame = (): void => {
+    if (!feelMode && !game) game = new Game({ sim, player, bounds, pockets, checkpoint, hud: hud!, fx });
+  };
+  const fallbackStats: control.PlayerStatsLike = { stroke: 100 }; // feel mode / pre-intro
+  const statsNow = (): control.PlayerStatsLike => (game ? game.stats : fallbackStats);
 
   // ---------- input ----------
   const input = new Input(sceneRig.renderer.domElement, () => camera.yaw, ballScreenPos);
@@ -124,7 +134,7 @@ async function boot(): Promise<void> {
     const dir = { x: s.dirX, z: s.dirZ };
     const spin = s.spin ?? { side: 0, top: 0 };
     if (game) game.fire(dir, s.power, spin);
-    else control.fire(player, dir, s.power, spin, stats);
+    else control.fire(player, dir, s.power, spin, statsNow());
   };
   input.onAimMove = s => {
     aimShot = s;
@@ -151,13 +161,15 @@ async function boot(): Promise<void> {
     e.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
-  const events: PhysicsEvents = game ? game.events : {
-    onSink: e => respawn(e),
-    onCollide: () => {},
-    onSurface: () => {},
-    onPad: () => {},
-    onFall: e => respawn(e),
-    onGraze: () => {},
+  // delegating object: before the intro is dismissed (game === null) sinks/falls just
+  // respawn, which is also the entire ?level=feel behavior — one seam serves both.
+  const events: PhysicsEvents = {
+    onSink: (e, id) => { if (game) game.events.onSink(e, id); else respawn(e); },
+    onCollide: (a, b, impact, tangent) => { game?.events.onCollide(a, b, impact, tangent); },
+    onSurface: (e, impact, kind) => { game?.events.onSurface(e, impact, kind); },
+    onPad: (e, id) => { game?.events.onPad(e, id); },
+    onFall: e => { if (game) game.events.onFall(e); else respawn(e); },
+    onGraze: (e, id) => { game?.events.onGraze(e, id); },
   };
 
   // ---------- fixed-step accumulator loop ----------
@@ -172,7 +184,7 @@ async function boot(): Promise<void> {
     let n = 0;
     while (acc >= CFG.h && n < maxSteps) {
       control.updateSpin(player, CFG.h); // forced-spin forces, BEFORE sim.step integrates them
-      if (steerDir) control.steer(player, steerDir, CFG.h, stats);
+      if (steerDir) control.steer(player, steerDir, CFG.h, statsNow());
       sim.snapshotPrev(entities);
       sim.step(CFG.h, entities, events);
       acc -= CFG.h;
@@ -220,6 +232,7 @@ async function boot(): Promise<void> {
 
     camera.update(dt, { pos: player.body.translation(), vel: player.body.linvel() }, sim);
     ballViews.sync(entities, renderAlpha);
+    markers.sync(entities, camera.camera);
 
     const grabbable = input.canAim ? input.canAim() : false;
     grabRing.visible = grabbable || aimShot !== null;
@@ -234,8 +247,30 @@ async function boot(): Promise<void> {
 
   document.getElementById('hud')?.classList.add('on');
 
-  // ---------- frozen debug hook (docs/tasks-v2/README.md) ----------
   const debugEnabled = (import.meta as any).env?.DEV || location.search.includes('debug');
+
+  // ---------- intro gate (M1.5): the 3 lines a new player needs, then BREAK ----------
+  // skipped in feel mode (no combat) and debug/dev boots (headless suites unchanged).
+  const overlay = document.getElementById('overlay');
+  const panel = document.getElementById('panel');
+  if (!feelMode && !debugEnabled && overlay && panel) {
+    panel.innerHTML =
+      '<h1>MISCUE</h1>' +
+      '<div class="sub">Drag <b>from the cue ball</b> — pull back, let go.<br>' +
+      'Knock the other balls into the pockets before they crack you.<br>' +
+      "Don't fall off the table.</div>" +
+      '<button class="btn gold center" id="break-btn"><b>BREAK</b></button>';
+    overlay.classList.add('on');
+    document.getElementById('break-btn')?.addEventListener('click', () => {
+      overlay.classList.remove('on');
+      audio.unlockAudio(); // the tap that starts the run is the gesture that unlocks sound
+      startGame();
+    }, { once: true });
+  } else {
+    startGame();
+  }
+
+  // ---------- frozen debug hook (docs/tasks-v2/README.md) ----------
   if (debugEnabled) {
     (window as any).__game = {
       debug: {
@@ -244,12 +279,12 @@ async function boot(): Promise<void> {
           return {
             pos: [p.x, p.y, p.z], vel: [v.x, v.y, v.z],
             grounded: control.grounded(player, sim),
-            peek: camera.peeking, yaw: camera.yaw, stroke: stats.stroke,
+            peek: camera.peeking, yaw: camera.yaw, stroke: statsNow().stroke,
           };
         },
         fire(dirXZ: { x: number; z: number }, power: number, spin?: { side: number; top: number }) {
           if (game) game.fire(dirXZ, power, spin ?? { side: 0, top: 0 });
-          else control.fire(player, dirXZ, power, spin ?? { side: 0, top: 0 }, stats);
+          else control.fire(player, dirXZ, power, spin ?? { side: 0, top: 0 }, statsNow());
         },
         warp(x: number, y: number, z: number) {
           player.body.setTranslation({ x, y, z }, true);

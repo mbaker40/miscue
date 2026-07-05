@@ -163,6 +163,7 @@ export class Game {
     }
 
     this.hud.setStroke(this.stroke, CFG.combat.strokeMax);
+    this.hud.setLeft(aliveEnemies.length + (this.boss && this.boss.alive ? 1 : 0));
   }
 
   // ---------- debug hook (main.ts wires these into window.__game.debug) ----------
@@ -298,7 +299,17 @@ export class Game {
     this.phase = 'clear'; // gate off postStep re-entry (see the Phase type's comment)
     this.chalk += CFG.combat.rackClearChalk;
     this.hud.setChalk(this.chalk);
-    this.hud.banner('TABLE CLEAR', false, 1200);
+    // M1-only mercy: clearing a table buffs out one crack. Without M2's shop/rest/
+    // forge economy, 3 lifetime cracks across 8 tables made runs structurally
+    // unwinnable (playability audit). M2's real recovery loop supersedes this.
+    if (this.cracks > 0) {
+      this.cracks--;
+      this.hud.setCracks(this.cracks, CFG.combat.maxCracks);
+      this.hud.banner('BUFFED OUT', false, 1200);
+      setTimeout(() => this.hud.banner('TABLE CLEAR', false, 1200), 700);
+    } else {
+      this.hud.banner('TABLE CLEAR', false, 1200);
+    }
     setTimeout(() => {
       if (this.phase !== 'clear') return; // a scratch-forced shatter can race this timer
       const next = Math.min(8, this.depth + 1); // cap 8 — the real route/escalation is M2

@@ -46,8 +46,10 @@ const ELITE_MASS_SCALE = 1.5;
 // decay (0.72/s). rapier has no direct analog, so linearDamping/angularDamping here
 // are separately tuned to *look* like that decay at ballR-scale speeds, not derived
 // from it — retune together if motion feels wrong, not just one in isolation.
-const LIN_DAMPING = 0.8; // 0.55 let shots glide ~2 table-lengths; felt, not ice
-const ANG_DAMPING = 0.6;
+const LIN_DAMPING = 0.65; // 0.55 = ice; 0.8 = mud on the 10u arena (M1.5 field report:
+                          // full power couldn't cross the table). shared via BALL_PHYS.
+const ANG_DAMPING = 0.5; // rolling brake — with LIN this sets full-power roll-out;
+                         // (0.7, 0.5, shot 12) = full send just crosses the 10u arena
 const FRICTION = 0.8;
 
 // shared with preview.ts's shadow-world ghost so the aim line rolls with exactly the

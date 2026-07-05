@@ -78,8 +78,10 @@ export function makeRack(depth: number, rng: Rng, money: boolean): Wave[] {
     const count = Math.min(6, 1 + act + (w > 0 ? 1 : 0) + (money ? 1 : 0));
 
     if (w === 0) {
-      // wave 0 is ALWAYS the teach beat — one clean kind, no elites, at every depth
-      const k = rng.pick(pool);
+      // wave 0 is ALWAYS the teach beat — one clean kind, no elites, at every depth.
+      // depth 1 forces skitters: a new player's first-ever enemy must flee, not punish
+      // (a teach wave of bumpers — tankiest kind, cracks you on contact — was brutal).
+      const k = depth === 1 ? 'skitter' : rng.pick(pool);
       for (let i = 0; i < count; i++) {
         const p = place(rng, used, 0.28, pressure);
         wave.push({ kind: k, nx: p.nx, nz: p.nz, elite: false });

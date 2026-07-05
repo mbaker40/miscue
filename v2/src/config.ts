@@ -6,10 +6,11 @@ export const CFG = {
   gravity: { x: 0, y: -20, z: 0 },
   h: 1 / 60,
   killY: -8,                       // world-space fall plane (level can override)
-  // player mass is 1 → impulse ≈ launch speed. 8 (not 12): with the rolling damping in
-  // registry.ts a full-power shot travels ~one slab length and change; 12 sent every
-  // casual shot straight off the world (the M0 field-report chaos).
-  shot: { maxImpulse: 8, minImpulse: 1.2 },
+  // player mass is 1 → impulse ≈ launch speed. 8 was tuned for M0's small UNRAILED
+  // slab (12 sent casual shots into the void); the railed 10u arena needs 11 — the
+  // M1 field report was "can't even hit the ball across the table at full power",
+  // and the playability audit confirmed full-power roll-out (~7u) < table length.
+  shot: { maxImpulse: 11, minImpulse: 1.2 },
   steer: { enabled: true, accel: 3.0, minSpeed: 0.8, drainPerSec: 12 },
   // accel MUST stay < g·sin(9°) ≈ 3.14 — the "correction-only" guarantee:
   // steering can bend a rolling ball but can never climb a ramp or start motion.
@@ -26,8 +27,13 @@ export const CFG = {
   // speed thresholds scale ×8/3 ≈ 2.67 to stay the same *fraction of a full shot*.
   // Dimensionless ratios and second-valued timers copy verbatim.
   combat: {
-    crackHeavyImpact: 1.47,   // v1 0.55 — bumper/boss/elite/fast-charger contact cracks above this
-    crackLightImpact: 3.07,   // v1 1.15 — ANY enemy cracks the player at this closing speed
+    // M1.5 playability pass: the straight v1 conversions (1.47/3.07 = 18%/38% of max
+    // shot) made the player's own medium shots into bumpers crack THEM — with zero
+    // crack recovery before M2's economy, shatter was structurally near-guaranteed
+    // (field report: "shattering feels too easy"). Raised so cracks come from
+    // enemy-initiated violence (charger lunge 4.8, boss 4.0) and true full sends.
+    crackHeavyImpact: 2.6,    // bumper/boss/elite/fast-charger contact cracks above this
+    crackLightImpact: 4.6,    // ANY enemy cracks the player at this closing speed
     chargerFastSpeed: 1.6,    // v1 0.60 — a charger moving faster than this counts as heavy
     splitImpact: 1.33,        // v1 0.50 — min closing speed for a splitter to split
     splitHardImpact: 2.67,    // v1 1.00 — dead-center hits split above this regardless of tangent
@@ -45,7 +51,8 @@ export const CFG = {
     rackClearChalk: 4,        // ×2 on money racks (M2)
     aimTimescale: 0.12,       // bullet time while aiming with stroke to burn...
     aimTimescaleEmpty: 0.45,  // ...and the free shallow slow when the tank is dry
-    aimDrainPerSec: 22,
+    aimDrainPerSec: 12,       // 22 (v1) punished thinking time; steering costs 12/s,
+                              // aiming shouldn't cost more than acting (M1.5)
     waveStallS: 25,           // anti-stall; EXEMPT on boss/mini-boss (armor is 1:1 with clears)
     calmStart: 0.8, calmBetween: 2.4, calmBossBetween: 2.2,
   },
