@@ -1,12 +1,13 @@
-// MISCUE v2 boot (M0-D): scene + camera + one hand-built table + the fixed-step loop
-// that ties physics to render. Rapier is a ~1.1MB wasm payload (dossier §04) — sim.ts
-// (and rapier3d-compat underneath it) is dynamic-imported so that cost is paid once,
-// here, at boot, not bundled into the top-level chunk graph.
+// MISCUE v2 boot (M1-C): the combat table wired in — waves, enemies, cracks, chalk,
+// stroke. Rapier is a ~1.1MB wasm payload (dossier §04) — sim.ts (and rapier3d-compat
+// underneath it) is dynamic-imported so that cost is paid once, here, at boot, not
+// bundled into the top-level chunk graph.
 import * as THREE from 'three';
 import { CFG } from './config';
 import { spawnPlayer, all, type Entity } from './registry';
 import type { PhysicsEvents } from './physics-events';
 import { buildLevel0 } from './level0';
+import { buildArena0 } from './arena0';
 import { ChaseCamera } from './camera';
 import { SceneRig } from './render/scene';
 import { BallViews } from './render/balls';
@@ -14,6 +15,9 @@ import { buildLevelMeshes } from './render/level';
 import { AimLine } from './render/aim';
 import * as control from './control';
 import { Input, type ShotPayload } from './input';
+import { Game } from './game';
+import { Hud } from './hud';
+import type { AiFx, Bounds } from './enemies';
 
 declare const __BUILD_ID__: string;
 
@@ -36,16 +40,27 @@ async function boot(): Promise<void> {
   await initPhysics();
 
   const sim = new Sim();
-  const { spawn, checkpoint } = buildLevel0(sim);
+
+  // ?level=feel keeps the M0 table + plain respawn events (no combat) so the M0
+  // regression suite still runs unmodified; the default boot is the M1 combat table.
+  const params = new URLSearchParams(location.search);
+  const feelMode = params.get('level') === 'feel';
+  const levelBuilder = feelMode ? buildLevel0 : buildArena0;
+
+  let spawn: { x: number; y: number; z: number };
+  let checkpoint: { x: number; y: number; z: number };
+  let bounds: Bounds = { halfW: 5, halfL: 5 };
+  let pockets: { x: number; y: number; z: number; id: number }[] = [];
+  if (feelMode) {
+    const lvl = buildLevel0(sim);
+    spawn = lvl.spawn; checkpoint = lvl.checkpoint;
+  } else {
+    const lvl = buildArena0(sim);
+    spawn = lvl.spawn; checkpoint = lvl.checkpoint; bounds = lvl.bounds; pockets = lvl.pockets;
+  }
+
   const player = spawnPlayer(sim, spawn);
-  const entities = all(); // live array (registry.ts) — player is the only entity in M0
-
-  const stats: control.PlayerStatsLike = { stroke: 100 }; // real Stroke economy is M1+
-
-  const speedOf = (e: Entity): number => {
-    const v = e.body.linvel();
-    return Math.hypot(v.x, v.z);
-  };
+  const entities = all(); // live array (registry.ts)
 
   // ---------- render + camera ----------
   const app = document.getElementById('app')!;
@@ -58,8 +73,9 @@ async function boot(): Promise<void> {
   const aimLine = new AimLine(sceneRig.scene);
 
   // shadow world for the aim preview — same level build, same ball phys (preview.ts).
+  // levelBuilder's return value is discarded (AimPreview's build param is (sim)=>void).
   const { AimPreview } = await import('./preview');
-  const preview = new AimPreview(s => { buildLevel0(s); });
+  const preview = new AimPreview(levelBuilder);
 
   // grab affordance: glowing ring under the ball whenever it's aim-eligible — the
   // gesture model is "touch the ball to act on it", so the ball says when it's ready.
@@ -83,6 +99,17 @@ async function boot(): Promise<void> {
     };
   };
 
+  const speedOf = (e: Entity): number => {
+    const v = e.body.linvel();
+    return Math.hypot(v.x, v.z);
+  };
+
+  // ---------- game state (M1: combat slice) or plain M0 stats, depending on level ----------
+  const hud = feelMode ? null : new Hud();
+  const fx: AiFx = { telegraph: (e, on) => ballViews.setTelegraph(e, on) };
+  const game = feelMode ? null : new Game({ sim, player, bounds, pockets, checkpoint, hud: hud!, fx });
+  const stats: control.PlayerStatsLike = game ? game.stats : { stroke: 100 };
+
   // ---------- input ----------
   const input = new Input(sceneRig.renderer.domElement, () => camera.yaw, ballScreenPos);
   let steerDir: { x: number; z: number } | null = null;
@@ -93,7 +120,12 @@ async function boot(): Promise<void> {
   const powerWrap = document.getElementById('powerwrap');
   const powerFill = document.getElementById('powerfill');
   input.canAim = () => control.grounded(player, sim) && speedOf(player) < 0.6;
-  input.onFire = s => control.fire(player, { x: s.dirX, z: s.dirZ }, s.power, s.spin ?? { side: 0, top: 0 }, stats);
+  input.onFire = s => {
+    const dir = { x: s.dirX, z: s.dirZ };
+    const spin = s.spin ?? { side: 0, top: 0 };
+    if (game) game.fire(dir, s.power, spin);
+    else control.fire(player, dir, s.power, spin, stats);
+  };
   input.onAimMove = s => {
     aimShot = s;
     powerWrap?.classList.toggle('on', !!s);
@@ -112,14 +144,15 @@ async function boot(): Promise<void> {
   // bullet time + the preview line both key off input's live aim state (onAimMove) —
   // the old parallel pointer tracker is gone with the zone-model rework.
 
-  // ---------- physics events (minimal M0 wiring — full scratch economy is M1+) ----------
+  // ---------- physics events: the real combat wiring (game.events) or M0's plain
+  // respawn-on-sink/-fall stubs when ?level=feel keeps the old regression table. ----------
   function respawn(e: Entity): void {
     e.body.setTranslation(checkpoint, true);
     e.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
-  const events: PhysicsEvents = {
-    onSink: e => respawn(e),   // flavor (real scratch rule) lands with game-state work
+  const events: PhysicsEvents = game ? game.events : {
+    onSink: e => respawn(e),
     onCollide: () => {},
     onSurface: () => {},
     onPad: () => {},
@@ -154,17 +187,32 @@ async function boot(): Promise<void> {
     const dt = Math.min(0.05, (t - lastT) / 1000);
     lastT = t;
 
-    // bullet time while aiming (v1's deep-slowmo pattern; the full Stroke-driven
-    // bullet-time economy is M1+ — M0 just runs a flat timescale during the drag).
-    const timescale = aimShot ? 0.25 : 1;
-    stepSim(dt * timescale);
+    // bullet time: game.ts owns the CFG.combat aim economy (replaces M0's flat 0.25);
+    // in ?level=feel there's no Game, so keep M0's flat behavior for suite compatibility.
+    let sdt: number;
+    if (game) {
+      sdt = game.preStep(dt, aimShot !== null);
+    } else {
+      const timescale = aimShot ? 0.25 : 1;
+      sdt = dt * timescale;
+    }
+    stepSim(sdt);
+    if (game) game.postStep(sdt);
 
-    // aim ribbon: re-simulated in the shadow world every frame the drag is live
+    // aim ribbon: re-simulated in the shadow world every frame the drag is live.
+    // live enemies ride along as overlap obstacles (M1-D) so the line stops honestly
+    // at the first ball it would meet — only built while aiming, so no steady-state cost.
     if (aimShot && aimShot.power > 0.02) {
       const p = player.body.translation();
+      const obstacles = entities
+        .filter(e => e.alive && e.kind !== 'player')
+        .map(e => {
+          const t = e.body.translation();
+          return { x: t.x, y: t.y, z: t.z, r: e.r };
+        });
       aimLine.show(preview.simulate(
         p, { x: aimShot.dirX, z: aimShot.dirZ }, aimShot.power,
-        aimShot.spin ?? { side: 0, top: 0 },
+        aimShot.spin ?? { side: 0, top: 0 }, obstacles,
       ), aimShot.power);
     } else if (!aimShot) {
       aimLine.hide();
@@ -200,7 +248,8 @@ async function boot(): Promise<void> {
           };
         },
         fire(dirXZ: { x: number; z: number }, power: number, spin?: { side: number; top: number }) {
-          control.fire(player, dirXZ, power, spin ?? { side: 0, top: 0 }, stats);
+          if (game) game.fire(dirXZ, power, spin ?? { side: 0, top: 0 });
+          else control.fire(player, dirXZ, power, spin ?? { side: 0, top: 0 }, stats);
         },
         warp(x: number, y: number, z: number) {
           player.body.setTranslation({ x, y, z }, true);
@@ -216,10 +265,25 @@ async function boot(): Promise<void> {
         // uncapped step budget: tick(1500) must simulate the full 1.5s. the rAF path
         // keeps its small cap (spiral-of-death guard); tests must not be lied to —
         // the original capped tick made a half-power shot look 10x weaker than live.
-        tick(ms: number) { stepSim(Math.min(ms, 20000) / 1000, 1e9); },
+        // M1: also drives the combat per-frame contract (enemy AI + wave progression)
+        // at the SAME simulated seconds, bypassing bullet-time scaling — deterministic.
+        tick(ms: number) {
+          const simSeconds = Math.min(ms, 20000) / 1000;
+          if (game) game.stepCombat(simSeconds);
+          stepSim(simSeconds, 1e9);
+          if (game) game.postStep(simSeconds);
+        },
         aiming() { return aimShot !== null; },
         ballScreen() { return ballScreenPos(); }, // where the grab test thinks the ball is
         canAim() { return input.canAim ? input.canAim() : false; },
+        // --- M1-C additive debug surface: enemy spawning + combat readout ---
+        spawn(kind: string, x: number, z: number, elite = false) {
+          if (!game) return null;
+          const e = game.spawnDebug(kind as any, x, z, elite);
+          return e.id;
+        },
+        clearEnemies() { if (game) game.clearEnemies(); },
+        combat() { return game ? game.combatState() : null; },
       },
     };
   }
