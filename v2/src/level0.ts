@@ -26,6 +26,24 @@ export function buildLevel0(sim: Sim): { spawn: Vec3; checkpoint: Vec3 } {
   // bank wall along the -z edge — a vertical collider to carom a shot off.
   sim.addStatic({ type: 'cuboid', hx: 4, hy: 0.6, hz: 0.15 }, { x: 0, y: 0.45, z: -4.15 });
 
+  // rail trim (M0 field fix): without curbs, nearly every shot sailed off the slab
+  // into the void — respawn chaos. Low chalk-white rails contain the table like MBU
+  // curbing; the -x edge stays OPEN (that's the gap hazard, jumping it is the point)
+  // and the +x edge opens 3-wide where the ramp meets the slab.
+  sim.addStatic({ type: 'cuboid', hx: 4.16, hy: 0.14, hz: 0.08 }, { x: 0, y: 0.14, z: 4.08 });   // +z edge
+  sim.addStatic({ type: 'cuboid', hx: 0.08, hy: 0.14, hz: 1.25 }, { x: 4.08, y: 0.14, z: -2.75 }); // +x, -z side of ramp mouth
+  sim.addStatic({ type: 'cuboid', hx: 0.08, hy: 0.14, hz: 1.25 }, { x: 4.08, y: 0.14, z: 2.75 });  // +x, +z side of ramp mouth
+  // ramp side rails so a climbing ball doesn't roll off sideways mid-slope
+  const rr = 1.6;
+  sim.addStatic(
+    { type: 'cuboid', hx: rr, hy: 0.12, hz: 0.07 },
+    { x: 4 + rr * cos, y: rr * sin + 0.12, z: -1.55 }, { x: 0, y: 0, z: -RAMP_DEG },
+  );
+  sim.addStatic(
+    { type: 'cuboid', hx: rr, hy: 0.12, hz: 0.07 },
+    { x: 4 + rr * cos, y: rr * sin + 0.12, z: 1.55 }, { x: 0, y: 0, z: -RAMP_DEG },
+  );
+
   // the gap: nothing between x=-4 (slab edge) and x=-5.6 (island edge) — a 1.6-unit
   // drop to killY. A firm shot carries across; a weak one falls in and triggers onFall.
   sim.addStatic({ type: 'cuboid', hx: 1.5, hy: 0.15, hz: 1.5 }, { x: -7.1, y: -0.15, z: 0 });

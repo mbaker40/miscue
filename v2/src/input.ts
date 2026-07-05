@@ -7,9 +7,12 @@ import type { ShotPayload } from './control';
 
 export type { ShotPayload };
 
-// bottom LOWER_ZONE_FRAC of the screen = aim-or-steer; the rest (or any two-finger
-// drag anywhere) = manual camera orbit.
-const LOWER_ZONE_FRAC = 0.55;
+// M0 field report: players naturally grab the ball itself, which sits near screen
+// CENTER in chase view — a "lower zone only" aim read their drags as orbit and the
+// camera slewed 1:1 with the finger ("spazzes all over the screen"). New model:
+// a single-finger drag ANYWHERE aims (when eligible) or steers (when coasting);
+// only the top ORBIT_ZONE_FRAC strip single-drags as orbit. Two fingers always orbit.
+const ORBIT_ZONE_FRAC = 0.2;
 
 // screen px of pull-back that reads as full (100%) power. scaled off the smaller
 // viewport dimension so it feels the same on a tall phone or a wide tablet.
@@ -43,6 +46,9 @@ export class Input {
   // wired by main.ts
   canAim: (() => boolean) | null = null;
   onFire: ((s: ShotPayload) => void) | null = null;
+  // live aim state for the preview line + bullet time: fires with the current shot on
+  // every aim-drag move, and with null when the drag ends (fired or not).
+  onAimMove: ((s: ShotPayload | null) => void) | null = null;
   onSteer: ((dir: { x: number; z: number } | null) => void) | null = null;
   onOrbit: ((dyawRad: number) => void) | null = null;
   onPeekToggle: (() => void) | null = null;
@@ -72,8 +78,8 @@ export class Input {
     slot?.addEventListener('click', () => this.onSlotTap?.());
   }
 
-  private zoneIsLower(y: number): boolean {
-    return y >= window.innerHeight * (1 - LOWER_ZONE_FRAC);
+  private zoneIsOrbit(y: number): boolean {
+    return y < window.innerHeight * ORBIT_ZONE_FRAC;
   }
 
   private centroid(): { x: number; y: number } {
@@ -90,6 +96,7 @@ export class Input {
       // a second finger always wins: whatever single-pointer gesture was running dies,
       // both fingers become orbit.
       if (this.mode === 'steer') this.onSteer?.(null);
+      if (this.mode === 'aim') this.onAimMove?.(null);
       this.mode = 'orbit2';
       this.gestureId = null;
       const c = this.centroid();
@@ -103,10 +110,11 @@ export class Input {
     this.startX = this.curX = e.clientX;
     this.startY = this.curY = e.clientY;
 
-    if (!this.zoneIsLower(e.clientY)) { this.mode = 'orbit1'; return; }
-    // lower zone: aim if eligible (grounded + slow), otherwise the same drag reads
-    // as steering — decided once at gesture start, same as v1's canAim() check.
+    if (this.zoneIsOrbit(e.clientY)) { this.mode = 'orbit1'; return; }
+    // everywhere else: aim if eligible (grounded + slow), otherwise the same drag
+    // reads as steering — decided once at gesture start, same as v1's canAim() check.
     this.mode = this.canAim && this.canAim() ? 'aim' : 'steer';
+    if (this.mode === 'aim') this.onAimMove?.(this.currentShot());
   }
 
   private move(e: PointerEvent): void {
@@ -128,7 +136,7 @@ export class Input {
     }
     this.curX = e.clientX; this.curY = e.clientY;
     if (this.mode === 'steer') this.onSteer?.(this.dragDirXZ());
-    // 'aim' just tracks curX/curY here; currentShot() reads them lazily on release.
+    else if (this.mode === 'aim') this.onAimMove?.(this.currentShot());
   }
 
   private up(e: PointerEvent): void {
@@ -142,6 +150,7 @@ export class Input {
 
     if (this.mode === 'aim') {
       const s = this.currentShot();
+      this.onAimMove?.(null);
       if (s && s.power > MIN_FIRE_POWER) this.onFire?.(s);
     } else if (this.mode === 'steer') {
       this.onSteer?.(null);

@@ -9,8 +9,10 @@ import { buildLevel0 } from './level0';
 import { ChaseCamera } from './camera';
 import { SceneRig } from './render/scene';
 import { BallViews } from './render/balls';
+import { buildLevelMeshes } from './render/level';
+import { AimLine } from './render/aim';
 import * as control from './control';
-import { Input } from './input';
+import { Input, type ShotPayload } from './input';
 
 async function boot(): Promise<void> {
   const { initPhysics, Sim } = await import('./sim');
@@ -35,10 +37,12 @@ async function boot(): Promise<void> {
   const camera = new ChaseCamera(innerWidth / innerHeight);
   sceneRig.setResizeHandler(aspect => camera.setAspect(aspect));
   const ballViews = new BallViews(sceneRig.scene);
+  buildLevelMeshes(sceneRig.scene, sim); // terrain meshes straight from the physics defs
+  const aimLine = new AimLine(sceneRig.scene);
 
-  // felt slab + ramp + bank + island are physics-only in M0 (buildLevel0 has no mesh
-  // side); nothing to add here yet beyond the ball itself — level render art is a
-  // later milestone. (render/fx.ts, chunk render, etc.)
+  // shadow world for the aim preview — same level build, same ball phys (preview.ts).
+  const { AimPreview } = await import('./preview');
+  const preview = new AimPreview(s => { buildLevel0(s); });
 
   // ---------- input ----------
   const input = new Input(sceneRig.renderer.domElement, () => camera.yaw);
@@ -46,8 +50,13 @@ async function boot(): Promise<void> {
   let peekOn = false;
   const peekBtn = document.getElementById('peek');
 
+  let aimShot: ShotPayload | null = null;
   input.canAim = () => control.grounded(player, sim) && speedOf(player) < 0.6;
   input.onFire = s => control.fire(player, { x: s.dirX, z: s.dirZ }, s.power, s.spin ?? { side: 0, top: 0 }, stats);
+  input.onAimMove = s => {
+    aimShot = s;
+    if (!s) aimLine.hide();
+  };
   input.onSteer = dir => { steerDir = dir; };
   input.onOrbit = dyaw => camera.orbit(dyaw);
   input.onPeekToggle = () => {
@@ -57,24 +66,8 @@ async function boot(): Promise<void> {
   };
   input.onSlotTap = () => { /* powerup consume — stub, lands at M4 */ };
 
-  // input.ts has no public "actively aiming" flag (its gesture state is private), and
-  // main.ts needs one for bullet-time (dossier's deep-slowmo-while-aiming feel, v1
-  // pattern). Rather than edit input.ts, track it in parallel here with the same
-  // lower-zone/canAim gate input.ts uses internally — a light seam adaptation, not a
-  // second source of truth for the gesture itself (input.ts still owns fire/steer).
-  let aiming = false;
-  let aimPointerId: number | null = null;
-  const LOWER_ZONE_FRAC = 0.55;
-  sceneRig.renderer.domElement.addEventListener('pointerdown', e => {
-    if (aimPointerId !== null) return;
-    const inLowerZone = e.clientY >= innerHeight * (1 - LOWER_ZONE_FRAC);
-    if (inLowerZone && input.canAim && input.canAim()) { aiming = true; aimPointerId = e.pointerId; }
-  });
-  const endAimTrack = (e: PointerEvent) => {
-    if (e.pointerId === aimPointerId) { aiming = false; aimPointerId = null; }
-  };
-  sceneRig.renderer.domElement.addEventListener('pointerup', endAimTrack);
-  sceneRig.renderer.domElement.addEventListener('pointercancel', endAimTrack);
+  // bullet time + the preview line both key off input's live aim state (onAimMove) —
+  // the old parallel pointer tracker is gone with the zone-model rework.
 
   // ---------- physics events (minimal M0 wiring — full scratch economy is M1+) ----------
   function respawn(e: Entity): void {
@@ -98,10 +91,10 @@ async function boot(): Promise<void> {
   // advances physics by `simSeconds` of SIMULATED time — shared by the rAF loop (which
   // scales real dt by the bullet-time factor before calling this) and __game.debug.tick
   // (which passes simulated ms straight through, no timescale, for deterministic drives).
-  function stepSim(simSeconds: number): void {
+  function stepSim(simSeconds: number, maxSteps = 8): void {
     acc += simSeconds;
     let n = 0;
-    while (acc >= CFG.h && n < 8) {
+    while (acc >= CFG.h && n < maxSteps) {
       control.updateSpin(player, CFG.h); // forced-spin forces, BEFORE sim.step integrates them
       if (steerDir) control.steer(player, steerDir, CFG.h, stats);
       sim.snapshotPrev(entities);
@@ -120,8 +113,19 @@ async function boot(): Promise<void> {
 
     // bullet time while aiming (v1's deep-slowmo pattern; the full Stroke-driven
     // bullet-time economy is M1+ — M0 just runs a flat timescale during the drag).
-    const timescale = aiming ? 0.25 : 1;
+    const timescale = aimShot ? 0.25 : 1;
     stepSim(dt * timescale);
+
+    // aim ribbon: re-simulated in the shadow world every frame the drag is live
+    if (aimShot && aimShot.power > 0.02) {
+      const p = player.body.translation();
+      aimLine.show(preview.simulate(
+        p, { x: aimShot.dirX, z: aimShot.dirZ }, aimShot.power,
+        aimShot.spin ?? { side: 0, top: 0 },
+      ));
+    } else if (!aimShot) {
+      aimLine.hide();
+    }
 
     camera.update(dt, { pos: player.body.translation(), vel: player.body.linvel() }, sim);
     ballViews.sync(entities, renderAlpha);
@@ -158,7 +162,11 @@ async function boot(): Promise<void> {
         },
         enterNode(_kind: string) { /* not until M2 — route/node graph doesn't exist yet */ },
         grantPowerup(_p: string) { /* not until M4 — powerups don't exist yet */ },
-        tick(ms: number) { stepSim(ms / 1000); },
+        // uncapped step budget: tick(1500) must simulate the full 1.5s. the rAF path
+        // keeps its small cap (spiral-of-death guard); tests must not be lied to —
+        // the original capped tick made a half-power shot look 10x weaker than live.
+        tick(ms: number) { stepSim(Math.min(ms, 20000) / 1000, 1e9); },
+        aiming() { return aimShot !== null; },
       },
     };
   }

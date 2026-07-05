@@ -46,9 +46,16 @@ const ELITE_MASS_SCALE = 1.5;
 // decay (0.72/s). rapier has no direct analog, so linearDamping/angularDamping here
 // are separately tuned to *look* like that decay at ballR-scale speeds, not derived
 // from it — retune together if motion feels wrong, not just one in isolation.
-const LIN_DAMPING = 0.55;
+const LIN_DAMPING = 0.8; // 0.55 let shots glide ~2 table-lengths; felt, not ice
 const ANG_DAMPING = 0.6;
 const FRICTION = 0.8;
+
+// shared with preview.ts's shadow-world ghost so the aim line rolls with exactly the
+// same phys as the real cue ball — drift here means a lying preview.
+export const BALL_PHYS = {
+  linDamping: LIN_DAMPING, angDamping: ANG_DAMPING,
+  friction: FRICTION, restitution: 0.94,
+};
 
 let nextId = 1;
 const entities: Entity[] = [];

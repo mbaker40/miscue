@@ -84,9 +84,11 @@ export class ChaseCamera {
     [this.pz, this.vz] = critSpring(this.pz, this.vz, desiredZ, CFG.cam.spring, dt);
 
     // look-ahead: bias toward where the ball is headed, falling back to facing
-    // direction at rest so the frame doesn't recenter on a dead ball.
+    // direction at rest. gated at the same speed as yaw tracking — below it the
+    // velocity direction is settling noise and the look target would teleport
+    // ±lookAhead every frame (the M0 field-report "camera spazz").
     let dirX = fwdX, dirZ = fwdZ;
-    if (speed > 0.05) { dirX = ball.vel.x / speed; dirZ = ball.vel.z / speed; }
+    if (moving) { dirX = ball.vel.x / speed; dirZ = ball.vel.z / speed; }
     const lookX = ball.pos.x + dirX * CFG.cam.lookAhead;
     const lookY = ball.pos.y + CFG.ballR;
     const lookZ = ball.pos.z + dirZ * CFG.cam.lookAhead;

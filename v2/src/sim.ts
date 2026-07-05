@@ -50,6 +50,10 @@ export class Sim {
   world: RAPIER.World;
   eventQueue: RAPIER.EventQueue;
   killY: number;
+  // authoring record of everything added, in order — the render layer builds level
+  // meshes straight from these so terrain can never silently be physics-only again.
+  readonly staticDefs: { shape: Shape; pos: Vec3; rotDeg?: Vec3 }[] = [];
+  readonly sensorDefs: { kind: SensorKind; id: number; shape: Shape; pos: Vec3 }[] = [];
   private sensors = new Map<number, { kind: SensorKind; id: number }>();
   private grazeLast = new Map<string, number>(); // `${entityId}:${pocketId}` -> sim-clock seconds
   private clock = 0; // accumulated simulated seconds, advanced only by step() — used to
@@ -68,6 +72,7 @@ export class Sim {
   }
 
   addStatic(shape: Shape, pos: Vec3, rotDeg?: Vec3): number {
+    this.staticDefs.push({ shape, pos, rotDeg });
     const bodyDesc = RAPIER.RigidBodyDesc.fixed()
       .setTranslation(pos.x, pos.y, pos.z)
       .setRotation(eulerToQuat(rotDeg));
@@ -80,6 +85,7 @@ export class Sim {
   }
 
   addSensorZone(kind: SensorKind, id: number, shape: Shape, pos: Vec3): number {
+    this.sensorDefs.push({ kind, id, shape, pos });
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(pos.x, pos.y, pos.z));
     const desc = this.shapeDesc(shape)
       .setSensor(true)
