@@ -15,7 +15,15 @@ import { AimLine } from './render/aim';
 import * as control from './control';
 import { Input, type ShotPayload } from './input';
 
+declare const __BUILD_ID__: string;
+
 async function boot(): Promise<void> {
+  // build stamp — tiny, always visible, ends every "is this the new build?" debate
+  const stamp = document.createElement('div');
+  stamp.textContent = `build ${typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}`;
+  stamp.style.cssText = 'position:fixed;top:2px;left:50%;transform:translateX(-50%);' +
+    'font-size:8px;letter-spacing:.08em;color:#3d5f54;z-index:20;pointer-events:none;';
+  document.body.appendChild(stamp);
   const { initPhysics, Sim } = await import('./sim');
   await initPhysics();
 
