@@ -2,9 +2,14 @@
 import { Ball, makePlayer, makeEnemy, makeSplitChild, HALF_L } from './entities';
 import { step, speedOf, simulatePath, MAX_SHOT_SPEED, PhysicsEvents } from './physics';
 import { updateEnemies } from './enemies';
-import { makeRack, makeBossWaves, Wave } from './waves';
+import { makeRack, makeBossWaves, makeMiniBossWaves, Wave } from './waves';
 import { baseStats, PlayerStats, draftUpgrades, UPGRADES, Upgrade } from './upgrades';
 import { Rng, dailySeed } from './rng';
+import {
+  generateRoute, Route, RouteSlot, NodeKind, actOf,
+  RACK_TAG, DRAFT_TAG, SHOP_TAG, MYSTERY_TAG, FORGE_TAG,
+} from './route';
+import { forgeOptions, rollMystery } from './events';
 import { Renderer3D } from './render';
 import { AimInput } from './input';
 import { Hud } from './hud';
@@ -13,7 +18,7 @@ import * as audio from './audio';
 type Phase = 'menu' | 'playing' | 'panel' | 'over';
 
 const MAX_STROKE = 100;
-const MAX_DEPTH = 6;
+const MAX_DEPTH = 12;
 const WAVE_STALL_S = 25; // anti-stall (dossier D3): next wave drops on timer OR clear
 
 export class Game {
@@ -25,7 +30,6 @@ export class Game {
   private balls: Ball[] = [];
   private player: Ball = makePlayer();
   private stats: PlayerStats = baseStats();
-  private rng = new Rng(1);
   private seed = 1;
   private isDaily = false;
 
@@ -34,6 +38,9 @@ export class Game {
   private cracks = 0;
   private stroke = 40;
   private owned = new Set<string>();
+
+  private route: Route = [];
+  private isMiniBoss = false;
 
   private waves: Wave[] = [];
   private waveIdx = 0;
@@ -62,6 +69,11 @@ export class Game {
     this.input.getBallPos = () => ({ x: this.player.x, z: this.player.z });
     this.input.onFire = s => this.fire(s.dirX, s.dirZ, s.power);
     addEventListener('pointerdown', () => audio.unlockAudio(), { once: true });
+    if ((import.meta as any).env?.DEV) (window as any).__game = this;
+  }
+
+  private subRng(tag: number, depth = 0): Rng {
+    return new Rng((this.seed ^ tag ^ Math.imul(depth, 0x9e3779b1)) >>> 0);
   }
 
   start() {
@@ -83,10 +95,10 @@ export class Game {
 
   private newRun(seed: number, daily: boolean) {
     this.seed = seed; this.isDaily = daily;
-    this.rng = new Rng(seed);
     this.depth = 1; this.chalk = 0; this.cracks = 0; this.stroke = 40;
     this.owned = new Set(); this.stats = baseStats();
     this.hud.showHud(true);
+    this.route = generateRoute(seed);
     this.startRack('rack');
   }
 
@@ -97,7 +109,8 @@ export class Game {
   // ---------- rack lifecycle ----------
   private startRack(type: string) {
     this.phase = 'playing';
-    this.isBossRack = this.depth >= MAX_DEPTH;
+    this.isBossRack = this.depth === MAX_DEPTH;
+    this.isMiniBoss = this.depth === 4;
     this.isMoneyRack = type === 'money';
     this.stats.lipUsedThisRack = false;
     this.r3d.clearBalls();
@@ -108,12 +121,20 @@ export class Game {
     this.boss = null;
 
     if (this.isBossRack) {
-      this.waves = makeBossWaves(this.rng);
+      this.waves = makeBossWaves(this.subRng(RACK_TAG, this.depth));
       this.boss = makeEnemy('boss', 0, -HALF_L * 0.55);
       this.balls.push(this.boss);
       this.hud.banner('THE 8-BALL', true, 2000);
+    } else if (this.isMiniBoss) {
+      this.waves = makeMiniBossWaves(this.subRng(RACK_TAG, this.depth));
+      this.boss = makeEnemy('boss', 0, -HALF_L * 0.5);
+      this.boss.armor = 1;          // makeEnemy hard-codes 3 — override AFTER construction
+      this.boss.r *= 0.82;          // reads as "lesser"
+      this.boss.mass *= 0.6;
+      this.balls.push(this.boss);
+      this.hud.banner('THE RACK-MASTER', true, 2000);
     } else {
-      this.waves = makeRack(this.depth, this.rng, this.isMoneyRack);
+      this.waves = makeRack(this.depth, this.subRng(RACK_TAG, this.depth), this.isMoneyRack);
       if (this.isMoneyRack) this.hud.banner('MONEY TABLE', false, 1600);
     }
     this.waveIdx = -1;
@@ -141,7 +162,9 @@ export class Game {
   }
 
   private onWaveCleared() {
-    if (this.isBossRack && this.boss && this.boss.alive) {
+    // mini-boss shares the boss's armor/vulnerable gating (invariant #3: 1:1 with wave clears) —
+    // its single wave clearing must open the climax, not shortcut straight to rackCleared().
+    if ((this.isBossRack || this.isMiniBoss) && this.boss && this.boss.alive) {
       if (this.boss.armor > 0) {
         this.boss.armor--;
         if (this.boss.armor === 0) {
@@ -174,42 +197,38 @@ export class Game {
 
   private offerDraft() {
     const n = this.isMoneyRack ? 4 : 3;
-    const picks = draftUpgrades(this.rng, this.owned, n);
+    const picks = draftUpgrades(this.subRng(DRAFT_TAG, this.depth), this.owned, n);
     this.hud.draft(picks, u => {
       if (u) { this.owned.add(u.id); u.apply(this.stats); }
       else this.chalk += 5;
       this.hud.setChalk(this.chalk);
       this.hud.setCracks(this.cracks, this.stats.maxCracks);
-      this.offerNodes();
+      this.offerNext();
     });
   }
 
   // ---------- the descent: choose your route ----------
-  private offerNodes() {
+  private offerNext() {
     this.depth++;
     this.hud.setDepth(this.depth, MAX_DEPTH);
-    if (this.depth >= MAX_DEPTH) {
-      this.hud.nodeChoice(this.depth, [
-        { key: 'rack', title: 'The bottom of the run', desc: 'Something black is waiting at the last table.', cls: 'pink' },
-      ], () => this.startRack('rack'));
-      return;
+    const slot = this.route[this.depth - 1];
+    const fan = this.route.slice(this.depth, this.depth + 3); // next 2–3 slots, may be short near the end
+    this.hud.nodeChoice(this.depth, slot.options, fan, k => this.enterSlot(k));
+  }
+  private enterSlot(kind: NodeKind) {
+    switch (kind) {
+      case 'shop':    return this.openShop();
+      case 'rest':    return this.openRest();
+      case 'forge':   return this.openForge();
+      case 'mystery': return this.openMystery();
+      case 'money':   return this.openWager();
+      default:        return this.startRack('rack'); // rack / miniboss / boss — depth drives detection
     }
-    const side = this.rng.pick(['shop', 'rest', 'money']);
-    const opts = [
-      { key: 'rack', title: 'Rack', desc: 'A fresh table of trouble. Clear it, get paid, re-forge.' },
-    ];
-    if (side === 'shop') opts.push({ key: 'shop', title: 'Re-chalk', desc: 'Spend chalk: repairs, Stroke, back-room upgrades.' });
-    if (side === 'rest') opts.push({ key: 'rest', title: 'Rest', desc: 'Polish out a crack and steady your Stroke.' });
-    if (side === 'money') opts.push({ key: 'money', title: 'Money table', desc: 'Elite-heavy rack. Double chalk, a wider re-forge.' });
-    this.hud.nodeChoice(this.depth, opts, key => {
-      if (key === 'shop') this.openShop();
-      else if (key === 'rest') this.openRest();
-      else this.startRack(key);
-    });
   }
 
   private openShop() {
     const refresh = () => this.hud.shopRefresh(this.chalk, this.cracks);
+    const shopRng = this.subRng(SHOP_TAG, this.depth);
     this.hud.shop(this.chalk, this.cracks, {
       repair: () => {
         if (this.chalk >= 8 && this.cracks > 0) {
@@ -229,14 +248,14 @@ export class Game {
         const avail = UPGRADES.filter(u => !this.owned.has(u.id));
         if (this.chalk >= 14 && avail.length > 0) {
           this.chalk -= 14;
-          const u = avail[Math.floor(this.rng.next() * avail.length)];
+          const u = avail[Math.floor(shopRng.next() * avail.length)];
           this.owned.add(u.id); u.apply(this.stats); audio.blip();
           this.hud.banner(u.name, false, 1500);
           this.hud.setChalk(this.chalk); this.hud.setCracks(this.cracks, this.stats.maxCracks);
           refresh(); return true;
         } return false;
       },
-      leave: () => this.startRack('rack'),
+      leave: () => this.offerNext(),
     });
   }
 
@@ -245,7 +264,47 @@ export class Game {
     this.stroke = Math.min(MAX_STROKE, this.stroke + 40);
     this.r3d.setPlayerCracks(this.cracks);
     this.hud.setCracks(this.cracks, this.stats.maxCracks);
-    this.hud.rest(() => this.startRack('rack'));
+    this.hud.rest(() => this.offerNext());
+  }
+
+  private openForge() {
+    const canForge = this.cracks + 1 < this.stats.maxCracks; // the Forge never deals the killing crack
+    const opts = canForge ? forgeOptions(this.subRng(FORGE_TAG, this.depth), 2) : [];
+    this.hud.forge(opts.map(o => ({ label: o.label, desc: o.desc })), i => {
+      if (i !== null && opts[i]) {
+        this.cracks++;
+        opts[i].apply(this.stats);
+        audio.crackSnap();
+        this.r3d.setPlayerCracks(this.cracks);
+        this.hud.setCracks(this.cracks, this.stats.maxCracks);
+        this.hud.banner(opts[i].label.toUpperCase(), true, 1400);
+      }
+      this.offerNext();
+    });
+  }
+
+  private openMystery() {
+    const ev = rollMystery(this.subRng(MYSTERY_TAG, this.depth), { cracks: this.cracks, chalk: this.chalk });
+    if (ev.chalk) this.chalk = Math.max(0, this.chalk + ev.chalk);
+    if (ev.repair && this.cracks > 0) { this.cracks--; this.r3d.setPlayerCracks(this.cracks); }
+    if (ev.strokeFill) this.stroke = MAX_STROKE;
+    this.hud.setChalk(this.chalk);
+    this.hud.setCracks(this.cracks, this.stats.maxCracks);
+    this.hud.mystery(ev, () => this.offerNext());
+  }
+
+  private openWager() {
+    const canCrack = this.chalk < 5 && this.cracks + 1 < this.stats.maxCracks;
+    this.hud.wager(this.chalk, canCrack, {
+      ante: () => { this.chalk -= 5; this.hud.setChalk(this.chalk); this.startRack('money'); },
+      anteCrack: () => {
+        this.cracks++; audio.crackSnap();
+        this.r3d.setPlayerCracks(this.cracks);
+        this.hud.setCracks(this.cracks, this.stats.maxCracks);
+        this.startRack('money');
+      },
+      decline: () => this.startRack('rack'), // walk to a plain table instead
+    });
   }
 
   // ---------- shots, stroke, damage ----------
@@ -326,7 +385,12 @@ export class Game {
         this.scratch();
         return;
       }
-      if (b.kind === 'boss') { audio.thunk(); this.r3d.pulse('sink'); this.victory(); return; }
+      if (b.kind === 'boss') {
+        audio.thunk(); this.r3d.pulse('sink');
+        if (this.isBossRack) this.victory();
+        else { this.hud.banner('RACK-MASTER DOWN', false, 1400); this.rackCleared(); }
+        return;
+      }
       audio.thunk();
       this.r3d.pulse('sink');
       this.sinksThisShot++;
@@ -421,7 +485,7 @@ export class Game {
         // anti-stall (dossier D3): a fleeing straggler can't hold the rack hostage —
         // the next wave drops on a timer even if the current one isn't cleared.
         // Boss racks are exempt: armor pips are tied 1:1 to wave CLEARS.
-        if (!this.isBossRack && this.enemiesAlive().length > 0 &&
+        if (!this.isBossRack && !this.isMiniBoss && this.enemiesAlive().length > 0 &&
             this.waveIdx >= 0 && this.waveIdx < this.waves.length - 1) {
           this.waveAge += sdt;
           if (this.waveAge >= WAVE_STALL_S) this.spawnNextWave();
