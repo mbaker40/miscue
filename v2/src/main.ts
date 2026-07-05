@@ -18,12 +18,20 @@ import { Input, type ShotPayload } from './input';
 declare const __BUILD_ID__: string;
 
 async function boot(): Promise<void> {
-  // build stamp — tiny, always visible, ends every "is this the new build?" debate
+  // build stamp — always visible, ends every "is this the new build?" debate.
+  // first cut was 8px dark-teal at top:2px: technically rendered, humanly invisible
+  // on a phone (under the notch, no contrast). now: legible, notch-safe, and echoed
+  // into the tab title + console for two more independent readouts.
+  const buildId = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev';
   const stamp = document.createElement('div');
-  stamp.textContent = `build ${typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev'}`;
-  stamp.style.cssText = 'position:fixed;top:2px;left:50%;transform:translateX(-50%);' +
-    'font-size:8px;letter-spacing:.08em;color:#3d5f54;z-index:20;pointer-events:none;';
+  stamp.textContent = `build ${buildId}`;
+  stamp.style.cssText =
+    'position:fixed;top:max(12px, env(safe-area-inset-top));left:50%;transform:translateX(-50%);' +
+    'font-size:11px;letter-spacing:.12em;color:#6fae9e;text-shadow:0 0 8px rgba(46,242,197,.45);' +
+    'z-index:30;pointer-events:none;font-family:inherit;';
   document.body.appendChild(stamp);
+  document.title += ` · ${buildId}`;
+  console.log(`MISCUE v2 — build ${buildId}`);
   const { initPhysics, Sim } = await import('./sim');
   await initPhysics();
 
