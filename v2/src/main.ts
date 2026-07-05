@@ -2,6 +2,7 @@
 // that ties physics to render. Rapier is a ~1.1MB wasm payload (dossier §04) — sim.ts
 // (and rapier3d-compat underneath it) is dynamic-imported so that cost is paid once,
 // here, at boot, not bundled into the top-level chunk graph.
+import * as THREE from 'three';
 import { CFG } from './config';
 import { spawnPlayer, all, type Entity } from './registry';
 import type { PhysicsEvents } from './physics-events';
@@ -44,8 +45,30 @@ async function boot(): Promise<void> {
   const { AimPreview } = await import('./preview');
   const preview = new AimPreview(s => { buildLevel0(s); });
 
+  // grab affordance: glowing ring under the ball whenever it's aim-eligible — the
+  // gesture model is "touch the ball to act on it", so the ball says when it's ready.
+  const grabRing = new THREE.Mesh(
+    new THREE.RingGeometry(CFG.ballR * 1.5, CFG.ballR * 1.95, 36),
+    new THREE.MeshBasicMaterial({ color: 0x2ef2c5, transparent: true, opacity: 0.45, side: THREE.DoubleSide }),
+  );
+  grabRing.rotation.x = -Math.PI / 2;
+  grabRing.visible = false;
+  sceneRig.scene.add(grabRing);
+
+  // ball position in screen px for input's grab test (null when behind the camera)
+  const projScratch = new THREE.Vector3();
+  const ballScreenPos = (): { x: number; y: number } | null => {
+    const p = player.body.translation();
+    projScratch.set(p.x, p.y, p.z).project(camera.camera);
+    if (projScratch.z > 1) return null;
+    return {
+      x: (projScratch.x * 0.5 + 0.5) * innerWidth,
+      y: (-projScratch.y * 0.5 + 0.5) * innerHeight,
+    };
+  };
+
   // ---------- input ----------
-  const input = new Input(sceneRig.renderer.domElement, () => camera.yaw);
+  const input = new Input(sceneRig.renderer.domElement, () => camera.yaw, ballScreenPos);
   let steerDir: { x: number; z: number } | null = null;
   let peekOn = false;
   const peekBtn = document.getElementById('peek');
@@ -129,6 +152,14 @@ async function boot(): Promise<void> {
 
     camera.update(dt, { pos: player.body.translation(), vel: player.body.linvel() }, sim);
     ballViews.sync(entities, renderAlpha);
+
+    const grabbable = input.canAim ? input.canAim() : false;
+    grabRing.visible = grabbable || aimShot !== null;
+    if (grabRing.visible) {
+      const p = player.body.translation();
+      grabRing.position.set(p.x, p.y - CFG.ballR + 0.015, p.z);
+    }
+
     sceneRig.render(camera.camera);
   }
   requestAnimationFrame(frame);

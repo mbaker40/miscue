@@ -7,16 +7,18 @@ import type { ShotPayload } from './control';
 
 export type { ShotPayload };
 
-// M0 field report: players naturally grab the ball itself, which sits near screen
-// CENTER in chase view — a "lower zone only" aim read their drags as orbit and the
-// camera slewed 1:1 with the finger ("spazzes all over the screen"). New model:
-// a single-finger drag ANYWHERE aims (when eligible) or steers (when coasting);
-// only the top ORBIT_ZONE_FRAC strip single-drags as orbit. Two fingers always orbit.
-const ORBIT_ZONE_FRAC = 0.2;
+// gesture model (second field iteration, user-directed): touch the BALL to act on
+// it, touch the WORLD to look around. A drag starting within GRAB of the ball's
+// screen position aims (when eligible) or steers (when coasting); a drag starting
+// anywhere else pans/orbits the camera. Two fingers always orbit.
+const GRAB_PX_MIN = 56;   // thumb-sized floor…
+const GRAB_FRAC = 0.13;   // …or 13% of the short screen edge, whichever is bigger
 
 // screen px of pull-back that reads as full (100%) power. scaled off the smaller
 // viewport dimension so it feels the same on a tall phone or a wide tablet.
-const AIM_PULL_FRAC = 0.22;
+// 0.38 (was 0.22): full power at ~86px meant any flick maxed out and the power
+// gradient was imperceptible — field report "not sure power + drag back works".
+const AIM_PULL_FRAC = 0.38;
 
 // a stray tap must not fire (mirrors v1's power > 0.06 gate).
 const MIN_FIRE_POWER = 0.06;
@@ -65,7 +67,13 @@ export class Input {
   private curX = 0; private curY = 0;
   private orbitCx = 0; private orbitCy = 0; // last two-finger centroid
 
-  constructor(private canvas: HTMLElement, private getCameraYaw: () => number) {
+  constructor(
+    private canvas: HTMLElement,
+    private getCameraYaw: () => number,
+    // ball's current screen-space position (px), null while it's off-screen —
+    // injected like getCameraYaw so input.ts stays camera/render-agnostic.
+    private getBallScreenPos: () => { x: number; y: number } | null,
+  ) {
     canvas.addEventListener('pointerdown', e => this.down(e));
     canvas.addEventListener('pointermove', e => this.move(e));
     canvas.addEventListener('pointerup', e => this.up(e));
@@ -78,8 +86,11 @@ export class Input {
     slot?.addEventListener('click', () => this.onSlotTap?.());
   }
 
-  private zoneIsOrbit(y: number): boolean {
-    return y < window.innerHeight * ORBIT_ZONE_FRAC;
+  private nearBall(x: number, y: number): boolean {
+    const b = this.getBallScreenPos();
+    if (!b) return false;
+    const grabR = Math.max(GRAB_PX_MIN, Math.min(window.innerWidth, window.innerHeight) * GRAB_FRAC);
+    return Math.hypot(x - b.x, y - b.y) <= grabR;
   }
 
   private centroid(): { x: number; y: number } {
@@ -110,8 +121,8 @@ export class Input {
     this.startX = this.curX = e.clientX;
     this.startY = this.curY = e.clientY;
 
-    if (this.zoneIsOrbit(e.clientY)) { this.mode = 'orbit1'; return; }
-    // everywhere else: aim if eligible (grounded + slow), otherwise the same drag
+    if (!this.nearBall(e.clientX, e.clientY)) { this.mode = 'orbit1'; return; }
+    // grabbed the ball: aim if eligible (grounded + slow), otherwise the same drag
     // reads as steering — decided once at gesture start, same as v1's canAim() check.
     this.mode = this.canAim && this.canAim() ? 'aim' : 'steer';
     if (this.mode === 'aim') this.onAimMove?.(this.currentShot());
