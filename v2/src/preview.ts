@@ -15,7 +15,12 @@ export interface PreviewResult {
   n: number;
   /** the previewed shot leaves the world (crosses killY) — draw it as a warning. */
   offWorld: boolean;
+  /** the previewed shot first meets a live enemy — the ribbon truncates there. */
+  hitEnemy: boolean;
 }
+
+/** live enemy position + radius, registry-agnostic (caller maps Entity -> this). */
+export interface PreviewObstacle { x: number; y: number; z: number; r: number }
 
 const MAX_PTS = 64;
 
@@ -26,6 +31,7 @@ export class AimPreview {
     points: Array.from({ length: MAX_PTS }, () => ({ x: 0, y: 0, z: 0 })),
     n: 0,
     offWorld: false,
+    hitEnemy: false,
   };
 
   /** build receives a fresh Sim and must add the SAME statics as the live level. */
@@ -51,10 +57,13 @@ export class AimPreview {
   simulate(
     pos: Vec3, dir: { x: number; z: number }, power: number,
     spin: { side: number; top: number },
+    // optional/defaulted: M1-C's 4-arg call site (pre-obstacles) still compiles.
+    obstacles: PreviewObstacle[] = [],
   ): PreviewResult {
     const r = this.result;
     r.n = 0;
     r.offWorld = false;
+    r.hitEnemy = false;
 
     const speed = Math.max(0, Math.min(1, power)) * CFG.shot.maxImpulse; // ghost mass 1
     this.ghost.setTranslation(pos, true);
@@ -96,6 +105,20 @@ export class AimPreview {
       this.sim.world.step();
 
       const t = this.ghost.translation();
+
+      // enemy overlap test: 2D (xz) vs the passed obstacle list, gated by a loose y
+      // band so a ramp-borne ghost above an enemy doesn't falsely truncate. Never add
+      // enemy bodies to the shadow world — a post-hit carom would be a lie without
+      // simulating the enemy's own response (dossier preview-honesty rule).
+      let hitObstacle = false;
+      for (let k = 0; k < obstacles.length; k++) {
+        const o = obstacles[k];
+        if (Math.abs(t.y - o.y) < 0.6 && Math.hypot(t.x - o.x, t.z - o.z) <= CFG.ballR + o.r) {
+          put(t); r.hitEnemy = true; hitObstacle = true; break;
+        }
+      }
+      if (hitObstacle) break;
+
       if (i % CFG.preview.stride === 0) put(t);
       if (t.y < this.sim.killY) { r.offWorld = true; put(t); break; }
       const v = this.ghost.linvel();

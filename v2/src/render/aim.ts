@@ -20,12 +20,27 @@ export class AimLine {
   private line: THREE.Line;
   private pts = Array.from({ length: PTS }, () => new THREE.Vector3());
 
+  // impact marker: a small ring at the ribbon's endpoint when the shot meets an enemy
+  // first — the ribbon truncates there (preview.ts never simulates past the hit, so
+  // this is the only extra draw call the "hitEnemy" case needs).
+  private markerMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false,
+  });
+  private marker: THREE.Mesh;
+
   constructor(scene: THREE.Scene) {
     this.geo.setFromPoints(this.pts);
     this.line = new THREE.Line(this.geo, this.mat);
     this.line.visible = false;
     this.line.frustumCulled = false;
     scene.add(this.line);
+
+    const ringGeo = new THREE.RingGeometry(0.12, 0.18, 24);
+    ringGeo.rotateX(-Math.PI / 2); // lies flat, facing up
+    this.marker = new THREE.Mesh(ringGeo, this.markerMat);
+    this.marker.visible = false;
+    this.marker.frustumCulled = false;
+    scene.add(this.marker);
   }
 
   /** power (0..1) drives the color — cool neon tap → hot gold full send; the line's
@@ -40,12 +55,25 @@ export class AimLine {
     }
     this.geo.setFromPoints(this.pts);
     this.line.computeLineDistances();
+    // offWorld beats hitEnemy on paper, but they can never both be true in one result
+    // — preview.ts breaks its ghost loop the instant either fires — so the order here
+    // just documents which branch wins if that ever changes.
     if (res.offWorld) this.mat.color.copy(DANGER);
     else this.mat.color.copy(MIX.copy(SOFT).lerp(HARD, Math.min(1, power)));
     this.line.visible = true;
+
+    if (res.hitEnemy) {
+      this.marker.position.set(last.x, last.y + 0.03, last.z);
+      // subtle pulse, module clock off performance.now() (this file has no dt param)
+      this.markerMat.opacity = 0.7 + 0.2 * Math.sin(performance.now() / 1000 * 6);
+      this.marker.visible = true;
+    } else {
+      this.marker.visible = false;
+    }
   }
 
   hide(): void {
     this.line.visible = false;
+    this.marker.visible = false;
   }
 }
