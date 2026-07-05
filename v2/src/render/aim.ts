@@ -7,13 +7,15 @@ import type { PreviewResult } from '../preview';
 
 const PTS = 64; // must be >= preview.ts MAX_PTS
 
-const OK_COLOR = 0x2ef2c5;
-const DANGER_COLOR = 0xff4a4a;
+const SOFT = new THREE.Color(0x2ef2c5);   // gentle tap — cool neon
+const HARD = new THREE.Color(0xf5c542);   // full send — hot gold
+const DANGER = new THREE.Color(0xff4a4a); // this shot leaves the world
+const MIX = new THREE.Color();
 
 export class AimLine {
   private geo = new THREE.BufferGeometry();
   private mat = new THREE.LineDashedMaterial({
-    color: OK_COLOR, dashSize: 0.11, gapSize: 0.07, transparent: true, opacity: 0.85,
+    color: 0x2ef2c5, dashSize: 0.11, gapSize: 0.07, transparent: true, opacity: 0.85,
   });
   private line: THREE.Line;
   private pts = Array.from({ length: PTS }, () => new THREE.Vector3());
@@ -26,7 +28,9 @@ export class AimLine {
     scene.add(this.line);
   }
 
-  show(res: PreviewResult): void {
+  /** power (0..1) drives the color — cool neon tap → hot gold full send; the line's
+   *  LENGTH is already the honest speed readout (it's the simulated roll). */
+  show(res: PreviewResult, power = 0.5): void {
     if (res.n < 2) { this.hide(); return; }
     const last = res.points[res.n - 1];
     for (let i = 0; i < PTS; i++) {
@@ -36,7 +40,8 @@ export class AimLine {
     }
     this.geo.setFromPoints(this.pts);
     this.line.computeLineDistances();
-    this.mat.color.setHex(res.offWorld ? DANGER_COLOR : OK_COLOR);
+    if (res.offWorld) this.mat.color.copy(DANGER);
+    else this.mat.color.copy(MIX.copy(SOFT).lerp(HARD, Math.min(1, power)));
     this.line.visible = true;
   }
 

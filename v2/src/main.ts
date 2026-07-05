@@ -74,10 +74,14 @@ async function boot(): Promise<void> {
   const peekBtn = document.getElementById('peek');
 
   let aimShot: ShotPayload | null = null;
+  const powerWrap = document.getElementById('powerwrap');
+  const powerFill = document.getElementById('powerfill');
   input.canAim = () => control.grounded(player, sim) && speedOf(player) < 0.6;
   input.onFire = s => control.fire(player, { x: s.dirX, z: s.dirZ }, s.power, s.spin ?? { side: 0, top: 0 }, stats);
   input.onAimMove = s => {
     aimShot = s;
+    powerWrap?.classList.toggle('on', !!s);
+    if (s && powerFill) powerFill.style.width = `${Math.round(s.power * 100)}%`;
     if (!s) aimLine.hide();
   };
   input.onSteer = dir => { steerDir = dir; };
@@ -145,7 +149,7 @@ async function boot(): Promise<void> {
       aimLine.show(preview.simulate(
         p, { x: aimShot.dirX, z: aimShot.dirZ }, aimShot.power,
         aimShot.spin ?? { side: 0, top: 0 },
-      ));
+      ), aimShot.power);
     } else if (!aimShot) {
       aimLine.hide();
     }
@@ -198,6 +202,8 @@ async function boot(): Promise<void> {
         // the original capped tick made a half-power shot look 10x weaker than live.
         tick(ms: number) { stepSim(Math.min(ms, 20000) / 1000, 1e9); },
         aiming() { return aimShot !== null; },
+        ballScreen() { return ballScreenPos(); }, // where the grab test thinks the ball is
+        canAim() { return input.canAim ? input.canAim() : false; },
       },
     };
   }

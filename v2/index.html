@@ -49,6 +49,17 @@
     .hud-bc { position: absolute; left: 50%; transform: translateX(-50%);
       bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column;
       align-items: center; gap: 4px; }
+    /* power bar: visible only mid-aim, fill + color track the pull */
+    #powerwrap { width: 180px; height: 14px; border: 1.5px solid rgba(245,197,66,.55);
+      border-radius: 8px; overflow: hidden; opacity: 0; transition: opacity .12s; }
+    #powerwrap.on { opacity: 1; }
+    #powerfill { height: 100%; width: 0%;
+      background: linear-gradient(90deg, #2ef2c5 0%, #f5c542 60%, #ff4a4a 100%);
+      background-size: 180px 100%; background-repeat: no-repeat;
+      box-shadow: 0 0 16px rgba(245,197,66,.7); }
+    #powerlabel { font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+      color: #b89a5e; opacity: 0; transition: opacity .12s; }
+    #powerwrap.on + #powerlabel { opacity: 1; }
     #strokewrap { width: 148px; height: 10px; border: 1px solid rgba(46,242,197,.5); border-radius: 6px; overflow: hidden; }
     #strokefill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--neon), #8ffce4);
       box-shadow: 0 0 14px rgba(46,242,197,.8); transition: width .12s linear; }
@@ -130,6 +141,8 @@
     </div>
     <div id="banner"></div>
     <div class="hud-bc">
+      <div id="powerwrap"><div id="powerfill"></div></div>
+      <div id="powerlabel">Power</div>
       <div id="strokewrap"><div id="strokefill"></div></div>
       <div class="hud-label">Stroke</div>
     </div>

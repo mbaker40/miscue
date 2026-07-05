@@ -30,15 +30,16 @@ const ORBIT_SENS = 0.006;
 const DBL_TAP_MS = 300;
 
 // --- aim sign convention -----------------------------------------------------
-// slingshot: the shot fires OPPOSITE the drag (v1). in chase view, dragging DOWN
-// (toward the player's thumb) pulls the cue back, so the shot fires FORWARD along
-// the camera's facing; dragging sideways (dx) fires the opposite lateral way.
-// three.js convention: camera looks down -Z at yaw 0, so at yaw the forward/right
-// basis vectors in the XZ plane are:
-//   forward = (-sin yaw, -cos yaw)     right = (cos yaw, -sin yaw)
-// shot dir = normalize(forward*(dragDy*AIM_FWD_SIGN) + right*(dragDx*AIM_LAT_SIGN))
-// these two signs are the ENTIRE aim convention — if the feel test says a shot goes
-// backwards or mirrored, flip one of these two constants, nothing else.
+// slingshot: the shot fires OPPOSITE the drag (v1). dragging DOWN (toward the
+// player's thumb) pulls the cue back, so the shot fires FORWARD = up-screen =
+// along the camera's VIEW direction.
+// camera.ts convention (verified against its update(): pos = ball - view*dist,
+// lookAt ball): view direction at yaw is
+//   view  = ( sin yaw, cos yaw)      screen-right = up x view = (cos yaw, -sin yaw)
+// The original M0 code used the NEGATED view as "forward" — the first shot from
+// boot happened to line up, but after the camera re-seated behind any real shot,
+// every pull-back fired the ball BACKWARD toward the camera (field report #2).
+// shot dir = normalize(view*(dragDy*AIM_FWD_SIGN) + right*(dragDx*AIM_LAT_SIGN))
 const AIM_FWD_SIGN = 1;
 const AIM_LAT_SIGN = -1;
 
@@ -177,7 +178,7 @@ export class Input {
     const dragDx = this.curX - this.startX;
     const dragDy = this.curY - this.startY;
     const yaw = this.getCameraYaw();
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const fx = Math.sin(yaw), fz = Math.cos(yaw); // camera VIEW dir — see convention block
     const rx = Math.cos(yaw), rz = -Math.sin(yaw);
     const fwd = dragDy * AIM_FWD_SIGN;
     const lat = dragDx * AIM_LAT_SIGN;

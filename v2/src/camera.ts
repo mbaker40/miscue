@@ -32,8 +32,11 @@ export class ChaseCamera {
 
   private px = 0; private py = CFG.cam.height; private pz = CFG.cam.dist;
   private vx = 0; private vy = 0; private vz = 0;
-  private _yaw = 0;
-  private manualYaw = 0;
+  // yaw π = looking down -z. matches the constructor position (+z side of the ball,
+  // spawn faces the table) — yaw 0 here made the rig swing 180° around the ball
+  // during the first second of boot and start play facing the void.
+  private _yaw = Math.PI;
+  private manualYaw = Math.PI;
   private wasMoving = false;
   private peekOn = false;
   private peekT = 0; // 0 = chase framing, 1 = fully overhead
