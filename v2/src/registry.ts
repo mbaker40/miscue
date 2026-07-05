@@ -103,6 +103,33 @@ export function spawnEnemy(sim: Sim, kind: Exclude<Kind, 'player'>, pos: Vec3, e
   return buildEntity(sim, kind, elite, pos, s.r * rScale, s.mass * massScale, s.rest, false);
 }
 
+// v1 makeSplitChild ported: a splitter that took a hard/off-center enough impact
+// breaks into n smaller non-elite splitters (never re-split — ai.didSplit gates that
+// at the caller). Caller despawns the parent; this only spawns the children, still at
+// the parent's position/velocity split, so a step never sees parent and children both
+// alive with overlapping colliders.
+export function spawnSplitChildren(sim: Sim, parent: Entity): Entity[] {
+  const n = parent.elite ? 3 : 2;
+  const pos = parent.body.translation();
+  const v = parent.body.linvel();
+  const r = parent.r * 0.68;
+  const mass = parent.body.mass() * 0.45;
+  const rest = STATS.splitter.rest;
+  const speed = Math.hypot(v.x, v.z);
+  let px = -v.z, pz = v.x; // perpendicular to travel
+  const pn = Math.hypot(px, pz) || 1;
+  px /= pn; pz /= pn;
+  const children: Entity[] = [];
+  for (let i = 0; i < n; i++) {
+    const sign = i % 2 === 0 ? 1 : -1;
+    const child = buildEntity(sim, 'splitter', false, { x: pos.x, y: pos.y, z: pos.z }, r, mass, rest, false);
+    child.ai.didSplit = true; // children never split again
+    child.body.setLinvel({ x: v.x * 0.5 + px * 0.5 * speed * sign, y: v.y, z: v.z * 0.5 + pz * 0.5 * speed * sign }, true);
+    children.push(child);
+  }
+  return children;
+}
+
 export function despawn(sim: Sim, e: Entity): void {
   if (!e.alive) return;
   e.alive = false;
