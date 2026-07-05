@@ -1,5 +1,6 @@
 // DOM HUD. Words are design material: name what the player controls.
 import { Upgrade } from './upgrades';
+import type { NodeOption, NodeKind, RouteSlot } from './route';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -61,12 +62,53 @@ export class Hud {
     });
   }
 
-  nodeChoice(depth: number, options: { key: string; title: string; desc: string; cls?: string }[], pick: (key: string) => void) {
+  nodeChoice(depth: number, options: NodeOption[], fan: RouteSlot[], pick: (k: NodeKind) => void) {
     const btns = options.map((o, i) =>
       `<button class="btn ${o.cls ?? ''}" id="node-${i}"><b>${o.title}</b><small>${o.desc}</small></button>`).join('');
-    this.panel(`<h2>Table ${depth}</h2><div class="sub">Choose your next table.</div>${btns}`);
+    const strip = fan.length > 0
+      ? `<div class="tiny">coming up · ${fan.map(s => `T${s.depth}: ${s.options.map(o => o.title).join(' / ')}`).join(' · ')}</div>`
+      : '';
+    this.panel(`<h2>Table ${depth}</h2><div class="sub">Choose your table.</div>${btns}${strip}`);
     const h: Record<string, () => void> = {};
-    options.forEach((o, i) => { h[`node-${i}`] = () => { this.hidePanel(); pick(o.key); }; });
+    options.forEach((o, i) => { h[`node-${i}`] = () => { this.hidePanel(); pick(o.kind); }; });
+    this.wire(h);
+  }
+
+  forge(options: { label: string; desc: string }[], onPick: (i: number | null) => void) {
+    const sub = options.length > 0
+      ? 'Press your soul against the wheel. One crack, one gift.'
+      : 'The wheel turns you away. One more crack would be your last.';
+    const btns = options.map((o, i) =>
+      `<button class="btn pink" id="fg-${i}"><b>${o.label} · +1 crack</b><small>${o.desc}</small></button>`).join('');
+    this.panel(`<h2>The Forge</h2><div class="sub">${sub}</div>${btns}<button class="btn center" id="fg-walk"><b>Walk away</b></button>`);
+    const h: Record<string, () => void> = {};
+    options.forEach((o, i) => { h[`fg-${i}`] = () => { this.hidePanel(); onPick(i); }; });
+    h['fg-walk'] = () => { this.hidePanel(); onPick(null); };
+    this.wire(h);
+  }
+
+  mystery(ev: { title: string; desc: string }, onDone: () => void) {
+    this.panel(`<h2>${ev.title}</h2><div class="sub">${ev.desc}</div>
+      <button class="btn center gold" id="my-go"><b>Move on</b></button>`);
+    this.wire({ 'my-go': () => { this.hidePanel(); onDone(); } });
+  }
+
+  wager(chalk: number, canCrack: boolean, actions: { ante: () => void; anteCrack: () => void; decline: () => void }) {
+    const canAnte = chalk >= 5;
+    const crackBtn = !canAnte
+      ? `<button class="btn pink" id="w-crack" ${canCrack ? '' : 'disabled'}><b>Ante a crack</b><small>Broke players pay in bone. +1 crack, buy in anyway.</small></button>`
+      : '';
+    this.panel(`
+      <h2>Money table</h2>
+      <div class="sub">Double chalk and a wider re-forge — if you can cover the ante.<br>You hold <b style="color:var(--gold)">◆ ${chalk}</b>.</div>
+      <button class="btn gold" id="w-ante" ${canAnte ? '' : 'disabled'}><b>Ante ◆ 5</b><small>Buy in. Elite-heavy rack, double payout.</small></button>
+      ${crackBtn}
+      <button class="btn center" id="w-decline"><b>Walk on</b><small>Take a plain rack instead.</small></button>
+    `);
+    const h: Record<string, () => void> = {};
+    if (canAnte) h['w-ante'] = () => { this.hidePanel(); actions.ante(); };
+    if (!canAnte && canCrack) h['w-crack'] = () => { this.hidePanel(); actions.anteCrack(); };
+    h['w-decline'] = () => { this.hidePanel(); actions.decline(); };
     this.wire(h);
   }
 

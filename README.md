@@ -15,7 +15,8 @@ A frantic 3D pool roguelike, web prototype. Three.js + custom pool physics + Vit
 - Four enemies + Elite variants: Bumpers, Skitters, Chargers, Splitters — each readable by shape/pattern, not color
 - Gauntlet racks: waves that crescendo to an Elite climax, with a calm beat between
 - **Cracks**: visible damage on the cue ball, 3 to shatter; chipped balls curve less true
-- The descent: 6 tables, route choices (rack / re-chalk shop / rest / money table), upgrade drafts between tables
+- The descent: 12 tables across three acts (the Shallows, the Tangle, the Deep) — the mini-boss (the Rack-Master) waits at table 4, the 8-ball at table 12. Route choices include rack, re-chalk shop, rest, **the Forge** (crack yourself on purpose for a permanent gift — crack-for-power), **Mystery tables** (an unknown event), and **the Money table** (ante chalk — or a crack when you're broke — for an elite-heavy rack and a wider re-forge)
+- You see the next 2–3 tables coming: a forward fan previews the choices ahead, not a full branching map
 - **The 8-ball boss**: armored until its minion waves fall, then sink it
 - Daily table: date-seeded rack shared by everyone (seeded generation only — physics runs free, per D1)
 - Synthesized audio: the *thunk* and the *crack*
@@ -62,7 +63,9 @@ src/
   input.ts     slingshot pointer input + spin pad
   hud.ts       DOM HUD and panels
   rng.ts       seeded RNG (daily table)
+  route.ts     pre-generated seeded route: 12 tables, options per depth
+  events.ts    forge and mystery tables
   audio.ts     synthesized thunk / crack / clack
 ```
 
-Not in the prototype (deliberately — see dossier): meta-progression/unlock tracks, server-validated leaderboards, ghost replays, the mid-run mini-boss, reactive soundtrack layers.
+Not in the prototype (deliberately — see dossier): meta-progression/unlock tracks, server-validated leaderboards, ghost replays, reactive soundtrack layers.
