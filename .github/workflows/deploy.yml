@@ -25,6 +25,34 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+      # v2 preview: if the v2 branch exists, build its v2/ subproject into dist/v2
+      # so the single Pages artifact serves v1 at /miscue/ and v2 at /miscue/v2/.
+      - name: Check for v2 branch
+        id: v2check
+        run: |
+          if git ls-remote --exit-code --heads origin v2 >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.v2check.outputs.exists == 'true'
+        with:
+          ref: v2
+          path: v2ck
+      - name: Build v2 preview
+        if: steps.v2check.outputs.exists == 'true'
+        working-directory: v2ck/v2
+        run: |
+          npm ci
+          npm run build
+      - name: Merge v2 into Pages artifact
+        if: steps.v2check.outputs.exists == 'true'
+        run: |
+          mkdir -p dist/v2
+          cp -r v2ck/v2/dist/. dist/v2/
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
