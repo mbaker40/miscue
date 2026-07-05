@@ -41,8 +41,8 @@ milestone run in the listed order.
 | M4 | Powerups ∥ Markers/HUD | grant + use each powerup, assert state effects |
 | M5 | Music ∥ Backdrop ∥ Tuning (`onBeat` API frozen first) | beat events at BPM ±1%; frame-time budget log |
 
-Only **M0** has a packet doc today (`M0.md`); later milestone docs are authored per-milestone as learnings
-land, same as the plan's execution order dictates.
+**M0** (`M0.md`) and **M1** (`M1.md`) have packet docs; later milestone docs are authored per-milestone as
+learnings land, same as the plan's execution order dictates.
 
 ## Frozen cross-packet contracts
 
