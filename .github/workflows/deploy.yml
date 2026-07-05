@@ -66,3 +66,22 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # ground truth: what does the PUBLIC url actually serve right after deploy?
+  # (the dev sandbox can't reach github.io, so this is the only automated probe)
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe live v2 preview
+        run: |
+          sleep 20
+          for path in "miscue/" "miscue/v2/"; do
+            echo "===== https://mbaker40.github.io/$path ====="
+            curl -sS --max-time 20 "https://mbaker40.github.io/$path?ci=${{ github.run_id }}" -o page.html \
+              -w "HTTP %{http_code}  bytes %{size_download}\n" || true
+            echo "--- script bundles referenced ---"
+            grep -o 'assets/[A-Za-z0-9_-]*\.js' page.html | sort -u || true
+            echo "--- title ---"
+            grep -o '<title>[^<]*</title>' page.html || true
+          done
