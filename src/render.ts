@@ -100,6 +100,9 @@ const KIND_TEX: Record<string, () => THREE.CanvasTexture> = {
 };
 
 // ---------- renderer ----------
+// simulatePath emits at most ~82 points (240 steps / 3 + endpoints); keep headroom
+const AIM_PTS = 100;
+
 interface BallView { mesh: THREE.Mesh; ring?: THREE.Mesh; mat: THREE.MeshStandardMaterial }
 
 export class Renderer3D {
@@ -111,6 +114,7 @@ export class Renderer3D {
   private aimLine: THREE.Line;
   private aimGeo = new THREE.BufferGeometry();
   private aimMat: THREE.LineDashedMaterial;
+  private aimPts = Array.from({ length: AIM_PTS }, () => new THREE.Vector3());
   private ballGeo = new THREE.SphereGeometry(1, 24, 18);
   private playerTexCache: THREE.CanvasTexture[] = [];
   private kindTexCache = new Map<string, THREE.CanvasTexture>();
@@ -334,8 +338,18 @@ export class Renderer3D {
 
   showAim(path: PathResult | null) {
     if (!path || path.points.length < 2) { this.aimLine.visible = false; return; }
-    const pts = path.points.map(p => new THREE.Vector3(p.x, 0.02, p.z));
-    this.aimGeo.setFromPoints(pts);
+    // Feed setFromPoints a CONSTANT-size array: three (r160+) updates the existing
+    // position attribute in place over the OLD count, so a path that shortens
+    // (e.g. the preview stops at an enemy) reads past the new array and throws —
+    // killing the frame loop while the line touches a target. Padding with the
+    // endpoint renders as zero-length dashes: invisible, and never resizes.
+    const n = path.points.length;
+    const last = path.points[n - 1];
+    for (let i = 0; i < AIM_PTS; i++) {
+      const p = i < n ? path.points[i] : last;
+      this.aimPts[i].set(p.x, 0.02, p.z);
+    }
+    this.aimGeo.setFromPoints(this.aimPts);
     this.aimLine.computeLineDistances();
     this.aimMat.color.set(path.danger ? 0xff4a4a : path.hitEnemy ? 0xf5c542 : NEON);
     this.aimLine.visible = true;
