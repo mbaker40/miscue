@@ -73,18 +73,34 @@ export class ChaseCamera {
     if (!moving && this.wasMoving) this.manualYaw = this._yaw; // seed orbit so resuming doesn't snap
     this.wasMoving = moving;
 
-    const targetYaw = moving ? Math.atan2(ball.vel.x, ball.vel.z) : this.manualYaw;
-    const yawDiff = wrapAngle(targetYaw - this._yaw);
-    this._yaw += yawDiff * Math.min(1, 1 - Math.exp(-CFG.cam.spring * dt));
+    if (moving) {
+      const targetYaw = Math.atan2(ball.vel.x, ball.vel.z);
+      const yawDiff = wrapAngle(targetYaw - this._yaw);
+      this._yaw += yawDiff * Math.min(1, 1 - Math.exp(-CFG.cam.spring * dt));
+    } else {
+      // manual pan is 1:1 — no spring between the finger and the frame (field
+      // report: parked panning "feels lagged... should not be any smoothing").
+      this._yaw = wrapAngle(this.manualYaw);
+      this.manualYaw = this._yaw; // keep the accumulator bounded
+    }
 
     const fwdX = Math.sin(this._yaw), fwdZ = Math.cos(this._yaw);
     const desiredX = ball.pos.x - fwdX * CFG.cam.dist;
     const desiredY = ball.pos.y + CFG.cam.height;
     const desiredZ = ball.pos.z - fwdZ * CFG.cam.dist;
 
-    [this.px, this.vx] = critSpring(this.px, this.vx, desiredX, CFG.cam.spring, dt);
-    [this.py, this.vy] = critSpring(this.py, this.vy, desiredY, CFG.cam.spring, dt);
-    [this.pz, this.vz] = critSpring(this.pz, this.vz, desiredZ, CFG.cam.spring, dt);
+    if (moving) {
+      [this.px, this.vx] = critSpring(this.px, this.vx, desiredX, CFG.cam.spring, dt);
+      [this.py, this.vy] = critSpring(this.py, this.vy, desiredY, CFG.cam.spring, dt);
+      [this.pz, this.vz] = critSpring(this.pz, this.vz, desiredZ, CFG.cam.spring, dt);
+    } else {
+      // parked: the rig is a tripod, not a boom — position derives rigidly from yaw
+      // so orbiting tracks the finger exactly. The snap at the moving->parked
+      // transition is sub-perceptual: spring lag at the 0.35 speed gate is ~v/omega
+      // ≈ 0.06u, and manualYaw is seeded from _yaw at that same transition above.
+      this.px = desiredX; this.py = desiredY; this.pz = desiredZ;
+      this.vx = this.vy = this.vz = 0;
+    }
 
     // look-ahead: bias toward where the ball is headed, falling back to facing
     // direction at rest. gated at the same speed as yaw tracking — below it the

@@ -30,15 +30,18 @@ const ORBIT_SENS = 0.006;
 const DBL_TAP_MS = 300;
 
 // --- aim sign convention -----------------------------------------------------
-// slingshot: the shot fires OPPOSITE the drag (v1). dragging DOWN (toward the
-// player's thumb) pulls the cue back, so the shot fires FORWARD = up-screen =
-// along the camera's VIEW direction.
+// slingshot: the shot fires OPPOSITE the drag (v1) on BOTH axes. dragging DOWN
+// pulls the cue back so the shot fires FORWARD (up-screen, along the camera view);
+// dragging RIGHT pulls the cue right so the shot fires LEFT.
 // camera.ts convention (verified against its update(): pos = ball - view*dist,
-// lookAt ball): view direction at yaw is
-//   view  = ( sin yaw, cos yaw)      screen-right = up x view = (cos yaw, -sin yaw)
-// The original M0 code used the NEGATED view as "forward" — the first shot from
-// boot happened to line up, but after the camera re-seated behind any real shot,
-// every pull-back fired the ball BACKWARD toward the camera (field report #2).
+// lookAt ball, up = +y): at yaw,
+//   view = (sin yaw, cos yaw)     screen-right = view x up = (-cos yaw, sin yaw)
+// Both basis vectors have now been wrong once. The original M0 code negated the
+// VIEW (every post-first pull-back fired backward — field report #2); the fix for
+// that left screen-right negated too, so the two errors stopped cancelling and
+// lateral came out unmirrored (pull back-right fired forward-RIGHT — field
+// report #3). Sanity anchor: yaw=π means camera on +z looking down -z, where
+// screen-right must be +x = (-cos π, sin π). Check any future edit against that.
 // shot dir = normalize(view*(dragDy*AIM_FWD_SIGN) + right*(dragDx*AIM_LAT_SIGN))
 const AIM_FWD_SIGN = 1;
 const AIM_LAT_SIGN = -1;
@@ -178,8 +181,8 @@ export class Input {
     const dragDx = this.curX - this.startX;
     const dragDy = this.curY - this.startY;
     const yaw = this.getCameraYaw();
-    const fx = Math.sin(yaw), fz = Math.cos(yaw); // camera VIEW dir — see convention block
-    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);   // camera VIEW dir — see convention block
+    const rx = -Math.cos(yaw), rz = Math.sin(yaw);  // true screen-right (view x up)
     const fwd = dragDy * AIM_FWD_SIGN;
     const lat = dragDx * AIM_LAT_SIGN;
     const x = fx * fwd + rx * lat, z = fz * fwd + rz * lat;
