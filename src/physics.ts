@@ -4,7 +4,9 @@ import { Ball, HALF_W, HALF_L, POCKET_R } from './entities';
 
 export interface PhysicsEvents {
   onSink(b: Ball, pocketIdx: number): void;
-  onCollide(a: Ball, b: Ball, impact: number): void;
+  /** impact: closing speed along the contact normal. tangent: relative speed
+   *  across it — the off-centeredness of the hit (0 = dead center). */
+  onCollide(a: Ball, b: Ball, impact: number, tangent: number): void;
   onRail(b: Ball, impact: number): void;
   onGraze(b: Ball, pocketIdx: number): void;
 }
@@ -88,6 +90,7 @@ function resolvePair(a: Ball, b: Ball, ev: PhysicsEvents | null) {
   a.vx -= (j / a.mass) * nx; a.vz -= (j / a.mass) * nz;
   b.vx += (j / b.mass) * nx; b.vz += (j / b.mass) * nz;
   const impact = Math.abs(vn);
+  const tangent = Math.abs(rvx * -nz + rvz * nx); // slip across the contact — off-center measure
   // follow/draw: on player contact, convert topspin into an impulse along/against travel
   for (const [self] of [[a, b], [b, a]] as [Ball, Ball][]) {
     if (self.kind === 'player' && Math.abs(self.spinTop) > 0.05) {
@@ -98,7 +101,7 @@ function resolvePair(a: Ball, b: Ball, ev: PhysicsEvents | null) {
       self.spinTop *= 0.3;
     }
   }
-  if (ev) ev.onCollide(a, b, impact);
+  if (ev) ev.onCollide(a, b, impact, tangent);
 }
 
 /** One fixed physics step over all balls. */

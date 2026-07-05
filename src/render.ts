@@ -116,6 +116,7 @@ export class Renderer3D {
   private kindTexCache = new Map<string, THREE.CanvasTexture>();
   private shakeT = 0;
   private camBase = new THREE.Vector3(); // framed camera position; shake offsets from here
+  private rollAxis = new THREE.Vector3(); // scratch vector for per-ball roll (no per-frame alloc)
   private feltMat: THREE.MeshStandardMaterial;
   private railMats: THREE.MeshStandardMaterial[] = [];
   portrait = true;
@@ -307,8 +308,8 @@ export class Renderer3D {
       // roll the sphere by travel
       const sp = Math.hypot(b.vx, b.vz);
       if (sp > 0.01) {
-        const axis = new THREE.Vector3(b.vz, 0, -b.vx).normalize();
-        v.mesh.rotateOnWorldAxis(axis, (sp * dt) / b.r);
+        this.rollAxis.set(b.vz, 0, -b.vx).normalize();
+        v.mesh.rotateOnWorldAxis(this.rollAxis, (sp * dt) / b.r);
       }
       if (v.ring) {
         v.ring.position.set(b.x, 0.004, b.z);

@@ -291,7 +291,7 @@ export class Game {
   }
 
   private scratch() {
-    audio.shatterSound();
+    audio.scratchSound();
     this.endRun('scratch');
   }
 
@@ -338,12 +338,14 @@ export class Game {
       this.hud.setChalk(this.chalk);
       if (b.elite) this.hud.banner('ELITE DOWN', false, 900);
     },
-    onCollide: (a, b, impact) => {
+    onCollide: (a, b, impact, tangent) => {
       audio.clack(Math.min(1, impact / 2));
       const pair = a.kind === 'player' ? b : b.kind === 'player' ? a : null;
       if (pair) {
-        // splitter cleaves on a hard player hit
-        if (pair.kind === 'splitter' && !pair.didSplit && impact > 0.5) {
+        // splitter cleaves when struck off-center (dossier flavor: the cheat comes
+        // apart at the seam) — or when a dead-center hit is simply too hard to survive
+        if (pair.kind === 'splitter' && !pair.didSplit && impact > 0.5 &&
+            (tangent > impact * 0.4 || impact > 1.0)) {
           pair.didSplit = true;
           pair.alive = false;
           const n = pair.elite ? 3 : 2;
