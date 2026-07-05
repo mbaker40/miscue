@@ -106,6 +106,9 @@ function resolvePair(a: Ball, b: Ball, ev: PhysicsEvents | null) {
 
 /** One fixed physics step over all balls. */
 export function step(balls: Ball[], dt: number, ev: PhysicsEvents) {
+  // snapshot for render interpolation — under deep slow-mo a step fires only every few
+  // frames, and without lerping between states every ball visibly judders while aiming
+  for (const b of balls) if (b.alive) { b.px = b.x; b.pz = b.z; }
   for (const b of balls) if (b.alive) stepBall(b, dt);
   for (const b of balls) if (b.alive) railBounce(b, ev);
   for (let i = 0; i < balls.length; i++) {
@@ -157,7 +160,7 @@ export function simulatePath(
   obstacles: Ball[], maxBounces = 2,
 ): PathResult {
   const ghost: Ball = {
-    id: -1, kind: 'player', elite: false, x, z, vx, vz,
+    id: -1, kind: 'player', elite: false, x, z, px: x, pz: z, vx, vz,
     r: 0.034, mass: 1, restitution: 0.94, alive: true,
     spinSide, spinTop, aiTimer: 0, aiState: 0, aiTx: 0, aiTz: 0,
     lungesLeft: 0, didSplit: false, armor: 0, vulnerable: true,

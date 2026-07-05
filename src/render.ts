@@ -294,13 +294,17 @@ export class Renderer3D {
     }
   }
 
-  sync(balls: Ball[], dt: number) {
+  sync(balls: Ball[], dt: number, alpha = 1) {
     const seen = new Set<number>();
     for (const b of balls) {
       if (!b.alive) continue;
       seen.add(b.id);
       const v = this.ensureView(b);
-      v.mesh.position.set(b.x, b.r, b.z);
+      // render between the last two physics states — under deep slow-mo a step lands
+      // only every few frames, and raw positions judder exactly when the player aims
+      const rx = b.px + (b.x - b.px) * alpha;
+      const rz = b.pz + (b.z - b.pz) * alpha;
+      v.mesh.position.set(rx, b.r, rz);
       if (b.kind === 'player') {
         const want = this.playerTexCache[this.playerCracks];
         if (v.mat.map !== want) { v.mat.map = want; v.mat.needsUpdate = true; }
@@ -312,7 +316,7 @@ export class Renderer3D {
         v.mesh.rotateOnWorldAxis(this.rollAxis, (sp * dt) / b.r);
       }
       if (v.ring) {
-        v.ring.position.set(b.x, 0.004, b.z);
+        v.ring.position.set(rx, 0.004, rz);
         const s = b.r * (1 + Math.sin(performance.now() * 0.004) * 0.06);
         v.ring.scale.setScalar(s);
       }

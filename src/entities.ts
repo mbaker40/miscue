@@ -13,6 +13,7 @@ export interface Ball {
   kind: Kind;
   elite: boolean;
   x: number; z: number;
+  px: number; pz: number;   // position at the start of the last physics step (render interpolation)
   vx: number; vz: number;
   r: number;
   mass: number;
@@ -45,7 +46,7 @@ const STATS: Record<Exclude<Kind, 'player'>, { r: number; mass: number; rest: nu
 export function makePlayer(): Ball {
   return {
     id: nextId++, kind: 'player', elite: false,
-    x: 0, z: HALF_L * 0.62, vx: 0, vz: 0,
+    x: 0, z: HALF_L * 0.62, px: 0, pz: HALF_L * 0.62, vx: 0, vz: 0,
     r: 0.034, mass: 1, restitution: 0.94, alive: true,
     spinSide: 0, spinTop: 0,
     aiTimer: 0, aiState: 0, aiTx: 0, aiTz: 0, lungesLeft: 0, didSplit: false,
@@ -58,7 +59,7 @@ export function makeEnemy(kind: Exclude<Kind, 'player'>, x: number, z: number, e
   const scale = elite ? 1.22 : 1;
   return {
     id: nextId++, kind, elite,
-    x, z, vx: 0, vz: 0,
+    x, z, px: x, pz: z, vx: 0, vz: 0,
     r: s.r * scale, mass: s.mass * (elite ? 1.5 : 1), restitution: s.rest,
     alive: true, spinSide: 0, spinTop: 0,
     aiTimer: 0.5 + aiRandom() * 1.5, aiState: 0, aiTx: 0, aiTz: 0,

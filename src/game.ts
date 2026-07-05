@@ -57,6 +57,7 @@ export class Game {
   private timescale = 1;
   private lastT = 0;
   private acc = 0;
+  private renderAlpha = 1; // fraction of the next physics step already elapsed
 
   constructor(container: HTMLElement) {
     this.r3d = new Renderer3D(container);
@@ -482,6 +483,7 @@ export class Game {
           step(this.balls, h, this.events);
           this.acc -= h; n++;
         }
+        this.renderAlpha = Math.min(1, this.acc / h);
 
         // anti-stall (dossier D3): a fleeing straggler can't hold the rack hostage —
         // the next wave drops on a timer even if the current one isn't cleared.
@@ -524,7 +526,7 @@ export class Game {
         this.hud.setStroke(this.stroke, MAX_STROKE);
       }
 
-      this.r3d.sync(this.balls, sdt);
+      this.r3d.sync(this.balls, sdt, this.renderAlpha);
     }
     this.r3d.render(dt);
   }
