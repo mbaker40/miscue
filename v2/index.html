@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#05060a" />
+  <title>MISCUE v2 — the long tables</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --void: #05060a;
+      --felt: #0a2e22;
+      --neon: #2ef2c5;
+      --magenta: #ff3ea5;
+      --warm: #ffd9a0;
+      --gold: #f5c542;
+      --danger: #ff4a4a;
+      --ink: #e8f4ef;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; background: var(--void); color: var(--ink);
+      font-family: 'Space Grotesk', system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; touch-action: none; }
+
+    /* ---------- HUD chrome (v2 layout: cracks TL, route TR, stroke BC, spin BR, slot BL) ---------- */
+    #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+    #hud.on { display: block; }
+    .hud-tl { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
+      display: flex; flex-direction: column; gap: 6px; }
+    #cracks { display: flex; gap: 6px; }
+    .pip { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--warm);
+      box-shadow: 0 0 10px rgba(255,217,160,.4); background: var(--warm); transition: all .2s; }
+    .pip.lost { background: transparent; border-color: var(--danger); box-shadow: 0 0 10px rgba(255,74,74,.5); }
+    .hud-tr { position: absolute; top: max(10px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+      text-align: right; font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+      color: #9fd8c8; text-shadow: 0 0 12px rgba(46,242,197,.35); display: flex; flex-direction: column; gap: 4px; }
+    .hud-tr b { color: var(--neon); }
+    #chalk { font-size: 13px; color: var(--gold); text-shadow: 0 0 10px rgba(245,197,66,.4); }
+    #banner { position: absolute; top: 18%; left: 0; right: 0; text-align: center;
+      font-family: 'Bungee', cursive; font-size: clamp(22px, 6vw, 44px); color: var(--neon);
+      text-shadow: 0 0 24px rgba(46,242,197,.8), 0 0 60px rgba(46,242,197,.4);
+      opacity: 0; transition: opacity .25s; }
+    #banner.show { opacity: 1; }
+    #banner.bad { color: var(--danger); text-shadow: 0 0 24px rgba(255,74,74,.8); }
+
+    .hud-bc { position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column;
+      align-items: center; gap: 4px; }
+    /* power bar: visible only mid-aim, fill + color track the pull */
+    #powerwrap { width: 180px; height: 14px; border: 1.5px solid rgba(245,197,66,.55);
+      border-radius: 8px; overflow: hidden; opacity: 0; transition: opacity .12s; }
+    #powerwrap.on { opacity: 1; }
+    #powerfill { height: 100%; width: 0%;
+      background: linear-gradient(90deg, #2ef2c5 0%, #f5c542 60%, #ff4a4a 100%);
+      background-size: 180px 100%; background-repeat: no-repeat;
+      box-shadow: 0 0 16px rgba(245,197,66,.7); }
+    #powerlabel { font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+      color: #b89a5e; opacity: 0; transition: opacity .12s; }
+    #powerwrap.on + #powerlabel { opacity: 1; }
+    #strokewrap { width: 148px; height: 10px; border: 1px solid rgba(46,242,197,.5); border-radius: 6px; overflow: hidden; }
+    #strokefill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--neon), #8ffce4);
+      box-shadow: 0 0 14px rgba(46,242,197,.8); transition: width .12s linear; }
+    .hud-label { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #6fae9e; }
+
+    /* powerup slot (bottom-left) */
+    #slot { position: absolute; left: max(14px, env(safe-area-inset-left));
+      bottom: max(14px, env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 14px;
+      border: 1.5px solid rgba(245,197,66,.45); background: rgba(245,197,66,.05);
+      pointer-events: auto; touch-action: none; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; letter-spacing: .08em; color: #b89a5e; }
+    #slot.full { border-color: var(--gold); box-shadow: 0 0 16px rgba(245,197,66,.4); color: var(--gold); }
+
+    /* peek button (above spin pad) */
+    #peek { position: absolute; right: max(14px, env(safe-area-inset-right));
+      bottom: calc(max(14px, env(safe-area-inset-bottom)) + 118px); width: 46px; height: 46px;
+      border-radius: 50%; border: 1.5px solid rgba(46,242,197,.5); background: rgba(46,242,197,.06);
+      color: var(--neon); font-size: 9px; letter-spacing: .12em; pointer-events: auto; touch-action: none;
+      font-family: inherit; }
+    #peek.on { background: rgba(46,242,197,.2); box-shadow: 0 0 16px rgba(46,242,197,.4); }
+
+    /* ---------- spin pad ---------- */
+    #spinpad { position: absolute; right: max(14px, env(safe-area-inset-right));
+      bottom: max(14px, env(safe-area-inset-bottom)); width: 92px; height: 92px; border-radius: 50%;
+      border: 1.5px solid rgba(255,62,165,.55); background: radial-gradient(circle, rgba(255,62,165,.08), transparent 70%);
+      pointer-events: auto; touch-action: none; }
+    #spinpad::after { content: 'SPIN'; position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+      font-size: 9px; letter-spacing: .25em; color: #c06a97; }
+    #spinknob { position: absolute; width: 22px; height: 22px; border-radius: 50%;
+      background: var(--magenta); box-shadow: 0 0 14px rgba(255,62,165,.9);
+      left: 50%; top: 50%; transform: translate(-50%, -50%); }
+    #spinpad .axis { position: absolute; background: rgba(255,62,165,.25); }
+    #spinpad .axis.v { left: 50%; top: 8%; bottom: 8%; width: 1px; }
+    #spinpad .axis.h { top: 50%; left: 8%; right: 8%; height: 1px; }
+
+    /* enemy markers layer */
+    #markers { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+
+    /* ---------- panels ---------- */
+    #overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      background: radial-gradient(ellipse at center, rgba(5,6,10,.55), rgba(5,6,10,.92));
+      pointer-events: auto; z-index: 10; }
+    #overlay.on { display: flex; }
+    .panel { max-width: min(480px, 92vw); width: 100%; text-align: center; padding: 22px; }
+    .panel h1 { font-family: 'Bungee', cursive; font-size: clamp(40px, 12vw, 76px); color: var(--neon);
+      text-shadow: 0 0 30px rgba(46,242,197,.9), 0 0 90px rgba(46,242,197,.35); line-height: 1; }
+    .panel h2 { font-family: 'Bungee', cursive; font-size: clamp(20px, 6vw, 34px); color: var(--neon);
+      text-shadow: 0 0 22px rgba(46,242,197,.7); margin-bottom: 6px; }
+    .panel h2.bad { color: var(--danger); text-shadow: 0 0 22px rgba(255,74,74,.7); }
+    .panel .sub { color: #8fb8ab; font-size: 14px; margin: 10px 0 20px; line-height: 1.5; }
+    .panel .tiny { color: #56776d; font-size: 11px; margin-top: 16px; letter-spacing: .06em; }
+    .btn { display: block; width: 100%; margin: 10px 0; padding: 14px 18px; border-radius: 12px;
+      border: 1.5px solid rgba(46,242,197,.55); background: rgba(46,242,197,.06); color: var(--ink);
+      font-family: inherit; font-size: 15px; font-weight: 500; cursor: pointer; text-align: left;
+      transition: all .15s; }
+    .btn:hover, .btn:active { background: rgba(46,242,197,.16); box-shadow: 0 0 18px rgba(46,242,197,.25); }
+    .btn b { display: block; color: var(--neon); font-size: 16px; margin-bottom: 3px; }
+    .btn small { color: #8fb8ab; font-size: 12px; line-height: 1.4; display: block; }
+    .btn.gold { border-color: rgba(245,197,66,.6); } .btn.gold b { color: var(--gold); }
+    .btn.gold:hover { background: rgba(245,197,66,.12); box-shadow: 0 0 18px rgba(245,197,66,.25); }
+    .btn.pink { border-color: rgba(255,62,165,.6); } .btn.pink b { color: var(--magenta); }
+    .btn.pink:hover { background: rgba(255,62,165,.12); box-shadow: 0 0 18px rgba(255,62,165,.25); }
+    .btn:disabled { opacity: .35; cursor: default; }
+    .btn.center { text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="markers"></div>
+
+  <div id="hud">
+    <div class="hud-tl">
+      <div><div class="hud-label">Integrity</div><div id="cracks"></div></div>
+    </div>
+    <div class="hud-tr">
+      <span>TABLE <b id="depth">1</b>/8</span>
+      <span>WAVE <b id="wave">1</b></span>
+      <span>LEFT <b id="left">0</b></span>
+      <span id="chalk">◆ 0</span>
+    </div>
+    <div id="banner"></div>
+    <div class="hud-bc">
+      <div id="powerwrap"><div id="powerfill"></div></div>
+      <div id="powerlabel">Power</div>
+      <div id="strokewrap"><div id="strokefill"></div></div>
+      <div class="hud-label">Stroke</div>
+    </div>
+    <div id="slot">EMPTY</div>
+    <button id="peek">PEEK</button>
+    <div id="spinpad"><div class="axis v"></div><div class="axis h"></div><div id="spinknob"></div></div>
+  </div>
+
+  <div id="overlay"><div class="panel" id="panel"></div></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
