@@ -4,10 +4,10 @@ import { step, speedOf, simulatePath, MAX_SHOT_SPEED, PhysicsEvents } from './ph
 import { updateEnemies } from './enemies';
 import { makeRack, makeBossWaves, makeMiniBossWaves, Wave } from './waves';
 import { baseStats, PlayerStats, draftUpgrades, UPGRADES, Upgrade } from './upgrades';
-import { Rng, dailySeed } from './rng';
+import { Rng, dailySeed, seedAiRng } from './rng';
 import {
   generateRoute, Route, RouteSlot, NodeKind, actOf,
-  RACK_TAG, DRAFT_TAG, SHOP_TAG, MYSTERY_TAG, FORGE_TAG,
+  RACK_TAG, DRAFT_TAG, SHOP_TAG, MYSTERY_TAG, FORGE_TAG, AI_TAG,
 } from './route';
 import { forgeOptions, rollMystery } from './events';
 import { Renderer3D } from './render';
@@ -99,6 +99,7 @@ export class Game {
     this.owned = new Set(); this.stats = baseStats();
     this.hud.showHud(true);
     this.route = generateRoute(seed);
+    seedAiRng((seed ^ AI_TAG) >>> 0);
     this.startRack('rack');
   }
 

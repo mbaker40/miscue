@@ -19,3 +19,9 @@ export function dailySeed(): number {
   const d = new Date();
   return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
 }
+
+// AI stream (D1): enemy decisions must be replayable. Seeded per run; separate
+// from the rack/draft streams so AI consumption can never desync table content.
+let aiStream = new Rng(1);
+export function seedAiRng(seed: number) { aiStream = new Rng(seed >>> 0); }
+export function aiRandom(): number { return aiStream.next(); }

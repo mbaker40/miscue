@@ -1,6 +1,7 @@
 // Behavior = backstory (dossier §06). Each enemy teaches one use of the kit.
 import { Ball, HALF_W, HALF_L } from './entities';
 import { speedOf } from './physics';
+import { aiRandom } from './rng';
 
 export interface AiFx {
   telegraph(b: Ball, on: boolean): void;
@@ -24,8 +25,8 @@ function interiorTargetAwayFrom(e: Ball, px: number, pz: number): [number, numbe
   let dx = e.x - px, dz = e.z - pz;
   const n = Math.hypot(dx, dz) || 1;
   dx /= n; dz /= n;
-  let tx = e.x + dx * 0.45 + (Math.random() - 0.5) * 0.3;
-  let tz = e.z + dz * 0.45 + (Math.random() - 0.5) * 0.3;
+  let tx = e.x + dx * 0.45 + (aiRandom() - 0.5) * 0.3;
+  let tz = e.z + dz * 0.45 + (aiRandom() - 0.5) * 0.3;
   tx = Math.max(-HALF_W * 0.7, Math.min(HALF_W * 0.7, tx));
   tz = Math.max(-HALF_L * 0.75, Math.min(HALF_L * 0.75, tz));
   return [tx, tz];

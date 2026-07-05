@@ -1,5 +1,7 @@
 // Logical table space (dossier: one logical table, orientation-independent):
 // x ∈ [-HALF_W, HALF_W], z ∈ [-HALF_L, HALF_L]. Portrait-native; the camera reframes.
+import { aiRandom } from './rng';
+
 export const HALF_W = 0.5;
 export const HALF_L = 1.0;
 export const POCKET_R = 0.062;
@@ -59,7 +61,7 @@ export function makeEnemy(kind: Exclude<Kind, 'player'>, x: number, z: number, e
     x, z, vx: 0, vz: 0,
     r: s.r * scale, mass: s.mass * (elite ? 1.5 : 1), restitution: s.rest,
     alive: true, spinSide: 0, spinTop: 0,
-    aiTimer: 0.5 + Math.random() * 1.5, aiState: 0, aiTx: 0, aiTz: 0,
+    aiTimer: 0.5 + aiRandom() * 1.5, aiState: 0, aiTx: 0, aiTz: 0,
     lungesLeft: 0, didSplit: false,
     armor: kind === 'boss' ? 3 : 0,
     vulnerable: kind !== 'boss',
